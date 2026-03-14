@@ -1,0 +1,168 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: Arial, sans-serif; background: #f5f5f5; color: #222; font-size: 14px; }
+
+/* ── Header ── */
+header {
+  background: white;
+  border-bottom: 1px solid #ddd;
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+header h1 { font-size: 17px; }
+header p  { font-size: 12px; color: #888; }
+
+.header-status { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; color: #888; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: #ccc; }
+.dot.ready   { background: #22c55e; }
+.dot.loading { background: #f59e0b; }
+.dot.error   { background: #ef4444; }
+
+/* ── Tabs ── */
+.tabs { background: white; border-bottom: 1px solid #ddd; display: flex; padding: 0 24px; }
+.tab-btn {
+  padding: 10px 18px;
+  font-size: 13px;
+  color: #666;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  cursor: pointer;
+  margin-bottom: -1px;
+  font-family: inherit;
+}
+.tab-btn:hover  { color: #222; }
+.tab-btn.active { color: #2563eb; border-bottom-color: #2563eb; }
+
+/* ── Controls bar ── */
+.controls-bar {
+  background: white;
+  border-bottom: 1px solid #ddd;
+  padding: 10px 24px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.control-label { font-size: 12px; color: #666; font-weight: bold; }
+
+.chip-list { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip {
+  border: 1px solid #c7d7ff;
+  background: #f0f4ff;
+  color: #2563eb;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.ticker-input {
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  width: 80px;
+  font-family: inherit;
+}
+.ticker-input:focus { border-color: #2563eb; outline: none; }
+
+.btn-small {
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 1px solid #ddd;
+  background: white;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.btn-small:hover { background: #f5f5f5; }
+
+.window-group { display: flex; gap: 3px; }
+.win-btn {
+  padding: 3px 9px;
+  font-size: 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+  font-family: inherit;
+  color: #555;
+}
+.win-btn.active { background: #2563eb; color: white; border-color: #2563eb; }
+
+.btn-load {
+  margin-left: auto;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: bold;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.btn-load:hover    { background: #1d4ed8; }
+.btn-load:disabled { background: #93c5fd; cursor: not-allowed; }
+
+/* ── Layout ── */
+.main { padding: 20px 24px 40px; }
+.panel { display: none; }
+.panel.active { display: block; }
+
+.section-title { font-size: 15px; font-weight: bold; margin-bottom: 4px; }
+.section-desc  { font-size: 12px; color: #666; margin-bottom: 16px; line-height: 1.6; }
+
+/* ── KPI row ── */
+.kpi-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+.kpi-card {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 12px 18px;
+  min-width: 120px;
+  flex: 1;
+}
+.kpi-label { font-size: 11px; color: #888; font-weight: bold; margin-bottom: 4px; text-transform: uppercase; }
+.kpi-value { font-size: 20px; font-weight: bold; color: #111; }
+.kpi-value.green { color: #16a34a; }
+.kpi-value.red   { color: #dc2626; }
+.kpi-value.blue  { color: #2563eb; }
+
+/* ── Cards ── */
+.card {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+.card-header {
+  padding: 11px 16px;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.card-title    { font-size: 13px; font-weight: bold; }
+.card-subtitle { font-size: 11px; color: #888; margin-left: auto; }
+.card-body     { padding: 16px; }
+
+/* ── Grids ── */
+.grid-2   { display: grid; grid-template-columns: 1fr 1fr;     gap: 16px; margin-bottom: 16px; }
+.grid-3   { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+.grid-2-1 { display: grid; grid-template-columns: 2fr 1fr;     gap: 16px; margin-bottom: 16px; }
+
+.chart-wrap { width: 100%; overflow: hidden; }
+svg.chart   { width: 100%; display: block; }
+
+.empty { text-align: center; padding: 40px 20px; color: #aaa; font-size: 13px; }
+
+@media (max-width: 768px) {
+  .grid-2, .grid-2-1, .grid-3 { grid-template-columns: 1fr; }
+}

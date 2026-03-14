@@ -4,83 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Portfolio Allocation Engine</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Inter', sans-serif; background: #f5f5f5; color: #222; font-size: 14px; }
-
-    header {
-      background: #fff; border-bottom: 1px solid #ddd; padding: 12px 24px;
-      display: flex; align-items: center; gap: 16px;
-      position: sticky; top: 0; z-index: 50;
-    }
-    header h1 { font-size: 17px; font-weight: 600; color: #111; }
-    header span.subtitle { font-size: 12px; color: #888; }
-
-    /* Status dot */
-    .header-status { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; color: #888; }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: #ccc; }
-    .dot.ready { background: #22c55e; }
-    .dot.loading { background: #f59e0b; animation: blink 1s infinite; }
-    .dot.error { background: #ef4444; }
-    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
-
-    /* Tabs */
-    .tabs { background: #fff; border-bottom: 1px solid #ddd; display: flex; padding: 0 24px; }
-    .tab-btn {
-      padding: 10px 18px; font-size: 13px; font-weight: 500; color: #666;
-      border: none; background: none; cursor: pointer;
-      border-bottom: 2px solid transparent; margin-bottom: -1px;
-      transition: color .15s, border-color .15s; font-family: inherit;
-    }
-    .tab-btn:hover { color: #222; }
-    .tab-btn.active { color: #2563eb; border-bottom-color: #2563eb; }
-
-    /* Controls bar */
-    .controls-bar {
-      background: #fff; border-bottom: 1px solid #ddd; padding: 10px 24px;
-      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-    }
-    .control-label { font-size: 12px; color: #666; font-weight: 500; }
-    .chip-list { display: flex; flex-wrap: wrap; gap: 5px; }
-    .chip {
-      background: #f0f4ff; border: 1px solid #c7d7ff; color: #2563eb;
-      border-radius: 4px; padding: 3px 8px; font-size: 12px; font-weight: 500;
-      display: inline-flex; align-items: center; gap: 4px;
-    }
-    .ticker-input {
-      border: 1px solid #ddd; border-radius: 4px; padding: 4px 8px;
-      font-size: 12px; width: 80px; outline: none; font-family: inherit;
-    }
-    .ticker-input:focus { border-color: #2563eb; }
-    .btn-small {
-      padding: 4px 10px; font-size: 12px; border-radius: 4px; border: 1px solid #ddd;
-      background: #fff; cursor: pointer; font-family: inherit; font-weight: 500;
-    }
-    .btn-small:hover { background: #f5f5f5; }
-    .window-group { display: flex; gap: 3px; }
-    .win-btn {
-      padding: 3px 9px; font-size: 12px; border: 1px solid #ddd; border-radius: 4px;
-      background: #fff; cursor: pointer; font-family: inherit; color: #555;
-    }
-    .win-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
-    .btn-load {
-      margin-left: auto; padding: 6px 16px; font-size: 13px; font-weight: 600;
-      background: #2563eb; color: #fff; border: none; border-radius: 5px;
-      cursor: pointer; font-family: inherit;
-    }
-    .btn-load:hover { background: #1d4ed8; }
-    .btn-load:disabled { background: #93c5fd; cursor: not-allowed; }
-
-    .main { padding: 20px 24px 40px; }
-    .empty { text-align: center; padding: 60px 20px; color: #aaa; font-size: 13px; }
-  </style>
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header>
     <div>
       <h1>Portfolio Allocation Engine</h1>
-      <span class="subtitle">Interactive Asset Analysis &amp; Optimization</span>
+      <p class="subtitle">Interactive Asset Analysis &amp; Optimization</p>
     </div>
     <div class="header-status">
       <div class="dot" id="statusDot"></div>
@@ -89,31 +19,139 @@
   </header>
 
   <div class="tabs">
-    <button class="tab-btn active">01 · Asset Explorer</button>
-    <button class="tab-btn">02 · Risk Estimation</button>
-    <button class="tab-btn">03 · Portfolio Builder</button>
+    <button class="tab-btn active" onclick="switchTab('explorer',this)">01 · Asset Explorer</button>
+    <button class="tab-btn" onclick="switchTab('risk',this)">02 · Risk Estimation</button>
+    <button class="tab-btn" onclick="switchTab('portfolio',this)">03 · Portfolio Builder</button>
   </div>
 
   <div class="controls-bar">
     <span class="control-label">Assets:</span>
-    <div class="chip-list" id="chipList">
-      <span class="chip">AAPL</span><span class="chip">MSFT</span><span class="chip">GOOGL</span>
-      <span class="chip">JPM</span><span class="chip">SPY</span>
-    </div>
-    <input class="ticker-input" placeholder="Add ticker" maxlength="6" />
-    <button class="btn-small">+ Add</button>
+    <div class="chip-list" id="chipList"></div>
+    <input class="ticker-input" id="tickerInput" placeholder="Add ticker" maxlength="6" />
+    <button class="btn-small" onclick="addTicker()">+ Add</button>
     <span class="control-label" style="margin-left:8px">Window:</span>
     <div class="window-group">
-      <button class="win-btn">1Y</button>
-      <button class="win-btn active">3Y</button>
-      <button class="win-btn">5Y</button>
-      <button class="win-btn">10Y</button>
+      <button class="win-btn" onclick="setWin('1y',this)">1Y</button>
+      <button class="win-btn active" onclick="setWin('3y',this)">3Y</button>
+      <button class="win-btn" onclick="setWin('5y',this)">5Y</button>
+      <button class="win-btn" onclick="setWin('10y',this)">10Y</button>
     </div>
-    <button class="btn-load" id="loadBtn">&#11015; Load Data</button>
+    <button class="btn-load" id="loadBtn" onclick="loadData()">&#11015; Load Data</button>
   </div>
 
   <div class="main">
-    <div class="empty">Load data using the button above to begin analysis.</div>
+
+    <!-- PANEL 1 — ASSET EXPLORER -->
+    <div class="panel active" id="panel-explorer">
+      <div class="section-title">Asset Explorer</div>
+      <p class="section-desc">Statistical overview: annualised return, volatility, Sharpe ratio, and pairwise correlations.</p>
+
+      <div class="kpi-row">
+        <div class="kpi-card"><div class="kpi-label">Assets</div><div class="kpi-value" id="kpi-n">—</div></div>
+        <div class="kpi-card"><div class="kpi-label">Observations</div><div class="kpi-value" id="kpi-obs">—</div></div>
+        <div class="kpi-card"><div class="kpi-label">Date Range</div><div class="kpi-value" style="font-size:14px" id="kpi-range">—</div></div>
+        <div class="kpi-card"><div class="kpi-label">Best Sharpe</div><div class="kpi-value green" id="kpi-sharpe">—</div></div>
+        <div class="kpi-card"><div class="kpi-label">Best Asset</div><div class="kpi-value blue" id="kpi-best">—</div></div>
+      </div>
+
+      <div class="grid-2-1">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Return vs. Volatility</span>
+            <span class="card-subtitle">Annualised · bubble = Sharpe</span>
+          </div>
+          <div class="card-body">
+            <div class="chart-wrap" id="scatterWrap"><div class="empty">Load data to display chart</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Summary Statistics</span></div>
+          <div class="card-body" style="padding:0">
+            <div id="statsTableWrap"><div class="empty">Load data</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Correlation Matrix</span>
+            <span class="card-subtitle" id="corrLabel">—</span>
+          </div>
+          <div class="card-body">
+            <div class="chart-wrap" id="heatmapWrap"><div class="empty">Load data</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Return Distribution</span></div>
+          <div class="card-body">
+            <div class="chart-wrap" id="histWrap"><div class="empty">Load data</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PANEL 2 — RISK ESTIMATION -->
+    <div class="panel" id="panel-risk">
+      <div class="section-title">Risk Estimation Studio</div>
+      <p class="section-desc">Compare three covariance estimators: Sample, Ledoit-Wolf (shrinkage), and EWMA.</p>
+      <div class="card"><div class="card-body"><div class="empty">Load data to view risk estimation</div></div></div>
+    </div>
+
+    <!-- PANEL 3 — PORTFOLIO BUILDER -->
+    <div class="panel" id="panel-portfolio">
+      <div class="section-title">Portfolio Builder</div>
+      <p class="section-desc">Construct optimal portfolios using four methods.</p>
+      <div class="card"><div class="card-body"><div class="empty">Load data to build portfolios</div></div></div>
+    </div>
+
   </div>
+
+  <script>
+    function switchTab(name, el) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      el.classList.add('active');
+      document.getElementById('panel-' + name).classList.add('active');
+    }
+
+    const S = { tickers: ['AAPL','MSFT','GOOGL','JPM','JNJ','SPY'], window: '3y' };
+    const COLORS = ['#2563eb','#16a34a','#dc2626','#d97706','#7c3aed','#0891b2','#db2777','#65a30d','#ea580c','#0f766e'];
+
+    function color(i) { return COLORS[i % COLORS.length]; }
+
+    function renderChips() {
+      const list = document.getElementById('chipList');
+      list.innerHTML = '';
+      S.tickers.forEach((t, i) => {
+        const c = document.createElement('span');
+        c.className = 'chip';
+        c.style.borderColor = color(i);
+        c.style.color = color(i);
+        c.style.background = color(i) + '18';
+        c.textContent = t;
+        list.appendChild(c);
+      });
+    }
+
+    function addTicker() {
+      const inp = document.getElementById('tickerInput');
+      const v = inp.value.trim().toUpperCase().replace(/[^A-Z0-9.\-]/g, '');
+      if (!v || S.tickers.includes(v) || S.tickers.length >= 15) { inp.value = ''; return; }
+      S.tickers.push(v);
+      inp.value = '';
+      renderChips();
+    }
+
+    function setWin(w, el) {
+      S.window = w;
+      document.querySelectorAll('.win-btn').forEach(b => b.classList.remove('active'));
+      el.classList.add('active');
+    }
+
+    function loadData() {}
+
+    renderChips();
+  </script>
 </body>
 </html>
