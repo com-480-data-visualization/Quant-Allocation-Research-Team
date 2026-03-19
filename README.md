@@ -54,7 +54,7 @@ Our dataset consists of daily closing prices for 9 assets (from Jan 2010 to Dec 
 * **Diversification properties:** Safe-haven assets proved their theoretical role. The long-term bond ETF (TLT) and Gold (GLD) exhibited negative or near-zero correlation with SPY (**-0.30** and **0.05** respectively), validating them as strong portfolio diversifiers during risk-off periods.
 * **Non-normality of returns:** We confirmed that daily return distributions strongly deviate from normality. Across our asset universe, we observed negative skewness (e.g., SPY: **-0.56**) and extreme excess kurtosis/fat tails (e.g., AAPL: **6.15**, SPY: **12.48**). 
 
-This empirical reality—specifically the massive kurtosis showing that extreme market movements are much more frequent than a standard Gaussian distribution predicts—motivates our project. It demonstrates exactly why users need an interactive tool to explore different risk and covariance estimation methods (beyond simple historical variance) when building robust portfolios.
+Ultimately, this empirical reality is what drives our project. The data clearly shows that extreme market movements are far more common than standard Gaussian models predict, highlighting the need for better risk visualization. It demonstrates exactly why users need an interactive tool to explore different risk and covariance estimation methods (beyond simple historical variance) when building robust portfolios.
 
 ### Related work
 
@@ -69,6 +69,7 @@ Several existing tools explore portfolio construction visually. Portfolio Visual
 Our approach aims to make the assumptions of portfolio construction visible and interactive, particularly the choice of covariance estimator, which is rarely surfaced in consumer tools but has a significant impact on the resulting weights. Rather than presenting a single "optimal" portfolio, we want users to explore how outputs change when inputs and methods change.
 
 Visual inspiration comes from the Financial Times's clean, annotation-driven chart style, and from Observable notebooks, which make mathematical processes explorable through linked interactive graphics.
+
 **Declaration of Originality:** We confirm that we have not explored this specific dataset combination nor developed this portfolio visualization concept in any previous context (such as ML, ADA courses, or past semester projects). This is an entirely original submission for this class.
 ## Milestone 2 (17th April, 5pm)
 
