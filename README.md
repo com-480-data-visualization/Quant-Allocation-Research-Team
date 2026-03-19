@@ -25,9 +25,9 @@ Please, fill the following sections about your project.
 >
 > Hint: some good pointers for finding quality publicly available datasets ([Google dataset search](https://datasetsearch.research.google.com/), [Kaggle](https://www.kaggle.com/datasets), [OpenSwissData](https://opendata.swiss/en/), [SNAP](https://snap.stanford.edu/data/) and [FiveThirtyEight](https://data.fivethirtyeight.com/)).
 
-Our project relies on financial market data fetched live from Yahoo Finance via the *yfinance* Python library. The dataset covers daily adjusted closing prices for a universe of 9 assets: 5 equities (AAPL, MSFT, GOOGL, JPM, JNJ), 3 ETFs (SPY, QQQ, GLD), and 1 bond ETF (TLT).
+Our project relies on financial market data initially fetched from Yahoo Finance via the `yfinance` Python library. To ensure perfect reproducibility and avoid unofficial API rate limits during grading, we have extracted a static dataset (CSV) covering daily closing prices **from January 2010 to December 2025** for a universe of 9 assets: 5 equities (AAPL, MSFT, GOOGL, JPM, JNJ), 3 ETFs (SPY, QQQ, GLD), and 1 bond ETF (TLT).
 
-The data quality is generally high, Yahoo Finance provides adjusted prices that account for stock splits and dividends, which is essential for computing meaningful long-run returns. Preprocessing requirements are minimal but non-trivial: we align all assets to a common set of trading dates (inner join on the date index), drop any remaining null values caused by instrument-specific holidays or halts, and compute log returns from price series. No scraping is involved, *yfinance* provides a clean programmatic interface to the data. The main limitation is that Yahoo Finance is an unofficial API and can be rate-limited, which we mitigate with a local Python proxy server.
+The data quality is high: Yahoo Finance provides adjusted prices that account for stock splits and dividends, which is essential for computing meaningful long-run returns. Preprocessing requirements were minimal but non-trivial: we aligned all assets to a common set of trading dates, handled occasional missing values due to instrument-specific trading halts, and computed log returns from price series. No scraping is involved.
 
 
 ### Problematic
@@ -48,11 +48,13 @@ Our target audience is finance and data science students, quantitative analysts 
 > Pre-processing of the data set you chose
 > - Show some basic statistics and get insights about the data
 
-US large-cap equities (AAPL, MSFT, GOOGL) are generally more volatile than diversified ETFs like SPY, while bond ETFs like TLT tend to exhibit lower volatility and historically low or negative correlation with equities during risk-off periods. Gold (GLD) is widely documented as a portfolio diversifier with near-zero equity correlation over long horizons.
+Our dataset consists of daily closing prices for 9 assets (from Jan 2010 to Dec 2025), fetched via `yfinance`. After aligning trading dates and dropping missing values, our final static dataset contains **4022 trading days**. We computed daily log returns to extract the following empirical insights, confirming the stylized facts of financial markets:
 
-We expect daily return distributions to deviate from normality, financial returns are well known to exhibit negative skew and excess kurtosis (fat tails), which motivates looking beyond simple mean/variance summaries. We plan to verify these properties through histograms, correlation matrices and rolling statistics once the data is loaded.
+* **Risk vs. Return:** As expected, US large-cap equities are more volatile than diversified ETFs. For instance, AAPL showed an annualized return of **23.50%** with **28.16%** volatility, compared to the broader market (SPY) which had a **13.09%** return and **17.25%** volatility.
+* **Diversification properties:** Safe-haven assets proved their theoretical role. The long-term bond ETF (TLT) and Gold (GLD) exhibited negative or near-zero correlation with SPY (**-0.30** and **0.05** respectively), validating them as strong portfolio diversifiers during risk-off periods.
+* **Non-normality of returns:** We confirmed that daily return distributions strongly deviate from normality. Across our asset universe, we observed negative skewness (e.g., SPY: **-0.56**) and extreme excess kurtosis/fat tails (e.g., AAPL: **6.15**, SPY: **12.48**). 
 
-The main preprocessing steps we anticipate are: aligning all assets to a common set of trading dates, handling occasional missing values due to instrument-specific trading halts, and computing log returns from adjusted closing prices.
+This empirical reality—specifically the massive kurtosis showing that extreme market movements are much more frequent than a standard Gaussian distribution predicts—motivates our project. It demonstrates exactly why users need an interactive tool to explore different risk and covariance estimation methods (beyond simple historical variance) when building robust portfolios.
 
 ### Related work
 
@@ -67,7 +69,7 @@ Several existing tools explore portfolio construction visually. Portfolio Visual
 Our approach aims to make the assumptions of portfolio construction visible and interactive, particularly the choice of covariance estimator, which is rarely surfaced in consumer tools but has a significant impact on the resulting weights. Rather than presenting a single "optimal" portfolio, we want users to explore how outputs change when inputs and methods change.
 
 Visual inspiration comes from the Financial Times's clean, annotation-driven chart style, and from Observable notebooks, which make mathematical processes explorable through linked interactive graphics.
-
+**Declaration of Originality:** We confirm that we have not explored this specific dataset combination nor developed this portfolio visualization concept in any previous context (such as ML, ADA courses, or past semester projects). This is an entirely original submission for this class.
 ## Milestone 2 (17th April, 5pm)
 
 **10% of the final grade**
