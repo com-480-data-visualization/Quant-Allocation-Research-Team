@@ -177,3 +177,35 @@ table.data-table tr:hover td { background: #f9fafb; }
 @media (max-width: 768px) {
   .grid-2, .grid-2-1, .grid-3 { grid-template-columns: 1fr; }
 }
+
+.method-tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.meth-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 500;
+  color: #555;
+  transition: all 0.12s;
+}
+
+.meth-btn:hover {
+  background: #f0f4ff;
+  color: #2563eb;
+  border-color: #c7d7ff;
+}
+
+.meth-btn.active {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}

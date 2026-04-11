@@ -3,6 +3,7 @@ function color(i) { return COLORS[i % COLORS.length]; }
 
 let tickers = ['AAPL','MSFT','GOOGL','JPM','JNJ','SPY'];
 let csvData = null;
+let selectedHistTicker = null;
 let assetStats = [];
 let assetReturns = {};
 const RF = 0.04;
@@ -77,7 +78,7 @@ async function loadData() {
 
     try {
     csvData = await d3.csv('data/prices.csv');
-    tickers = csvData.columns.filter(c => c !== 'Date');
+    tickers = Object.keys(csvData[0]).filter(c => c !== 'Date');
     renderChips();
 
     // Compute returns
@@ -107,7 +108,8 @@ async function loadData() {
     drawScatter(assetStats);
     renderStatsTable(assetStats);
     drawHeatmap(tickers);
-    drawHistogram(assetReturns);
+    renderHistTabs();
+    drawHistogram(assetReturns, tickers[0]);
 
     document.getElementById('statusDot').className = 'dot ready';
     document.getElementById('statusText').textContent = tickers.length + ' assets loaded';
@@ -248,14 +250,13 @@ function drawHeatmap(tickers) {
 }
 
 // ── Return Distribution (Histogram) ──
-function drawHistogram(assetReturns) {
+function drawHistogram(assetReturns, ticker) {
   const wrap = d3.select('#histWrap');
   wrap.html('');
 
-  // flatten all returns into one array
-  const allReturns = Object.values(assetReturns).flat();
+  const rets = assetReturns[ticker];
 
-  const margin = { top: 16, right: 20, bottom: 42, left: 54 };
+  const margin = { top: 16, right: 16, bottom: 36, left: 44 };
   const width = 520, height = 300;
   const cw = width - margin.left - margin.right;
   const ch = height - margin.top - margin.bottom;
@@ -266,63 +267,122 @@ function drawHistogram(assetReturns) {
   const g = svg.append('g')
     .attr('transform', `translate(${margin.left},${margin.top})`);
 
-  // X scale (returns)
-  const x = d3.scaleLinear()
-    .domain(d3.extent(allReturns))
+  // X scale
+  const xScale = d3.scaleLinear()
+    .domain(d3.extent(rets))
     .nice()
     .range([0, cw]);
 
-  // Histogram bins
+  // bins
   const bins = d3.bin()
-    .domain(x.domain())
-    .thresholds(40)(allReturns);
+    .domain(xScale.domain())
+    .thresholds(35)(rets);
 
-  const y = d3.scaleLinear()
-    .domain([0, d3.max(bins, d => d.length)])
+  // Y scale
+  const yScale = d3.scaleLinear()
+    .domain([0, d3.max(bins, b => b.length)])
     .nice()
     .range([ch, 0]);
 
-  // Bars
+  // grid
+  g.selectAll('.grid')
+    .data(yScale.ticks(4))
+    .enter()
+    .append('line')
+    .attr('x1', 0)
+    .attr('x2', cw)
+    .attr('y1', d => yScale(d))
+    .attr('y2', d => yScale(d))
+    .attr('stroke', '#eee');
+
+  // bars
   g.selectAll('rect')
     .data(bins)
     .enter()
     .append('rect')
-    .attr('x', d => x(d.x0))
-    .attr('y', d => y(d.length))
-    .attr('width', d => Math.max(0, x(d.x1) - x(d.x0) - 1))
-    .attr('height', d => ch - y(d.length))
-    .attr('fill', '#2563eb')
-    .attr('opacity', 0.75);
+    .attr('x', d => xScale(d.x0) + 0.5)
+    .attr('y', d => yScale(d.length))
+    .attr('width', d => Math.max(0, xScale(d.x1) - xScale(d.x0) - 1))
+    .attr('height', d => ch - yScale(d.length))
+    .attr('fill', color(tickers.indexOf(ticker)))
+    .attr('opacity', 0.8);
 
-  // Axes
+  // axes
   g.append('g')
     .attr('transform', `translate(0,${ch})`)
-    .call(d3.axisBottom(x).ticks(6).tickFormat(d => (d * 100).toFixed(1) + '%'))
-    .selectAll('text')
-    .style('font-size', '9px');
+    .call(d3.axisBottom(xScale).ticks(5).tickFormat(d => (d * 100).toFixed(1) + '%'));
 
   g.append('g')
-    .call(d3.axisLeft(y).ticks(5))
-    .selectAll('text')
-    .style('font-size', '9px');
+    .call(d3.axisLeft(yScale).ticks(4));
 
-  // Labels
-  svg.append('text')
-    .attr('x', margin.left + cw / 2)
-    .attr('y', height - 4)
-    .attr('text-anchor', 'middle')
-    .style('font-size', '10px')
-    .style('fill', '#999')
-    .text('Daily Returns');
+  // normal curve
+  const mu = d3.mean(rets);
+  const sigma = d3.deviation(rets);
 
-  svg.append('text')
-    .attr('transform', 'rotate(-90)')
-    .attr('x', -(margin.top + ch / 2))
-    .attr('y', 14)
-    .attr('text-anchor', 'middle')
-    .style('font-size', '10px')
-    .style('fill', '#999')
-    .text('Frequency');
+  const binWidth = (xScale.domain()[1] - xScale.domain()[0]) / 35;
+
+  const xVals = d3.range(100).map(i =>
+    xScale.domain()[0] +
+    (i / 99) * (xScale.domain()[1] - xScale.domain()[0])
+  );
+
+  const normLine = d3.line()
+    .x(d => xScale(d))
+    .y(d => {
+      const density =
+        (1 / (sigma * Math.sqrt(2 * Math.PI))) *
+        Math.exp(-0.5 * ((d - mu) / sigma) ** 2);
+
+      return yScale(density * rets.length * binWidth);
+    });
+
+  g.append('path')
+    .datum(xVals)
+    .attr('d', normLine)
+    .attr('fill', 'none')
+    .attr('stroke', '#111')
+    .attr('stroke-width', 1.5)
+    .attr('stroke-dasharray', '4,3');
+
+  // mean line
+  g.append('line')
+    .attr('x1', xScale(mu))
+    .attr('x2', xScale(mu))
+    .attr('y1', 0)
+    .attr('y2', ch)
+    .attr('stroke', '#555')
+    .attr('stroke-dasharray', '3,3');
+
+  g.append('text')
+    .attr('x', xScale(mu) + 4)
+    .attr('y', 12)
+    .style('font-size', '9px')
+    .style('fill', '#555')
+    .text('μ');
+}
+
+function renderHistTabs() {
+  const wrap = document.getElementById('histTabs');
+  wrap.innerHTML = '';
+
+  tickers.forEach((t, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'meth-btn' + (i === 0 ? ' active' : '');
+    btn.textContent = t;
+
+    btn.onclick = () => {
+      document.querySelectorAll('#histTabs .meth-btn')
+        .forEach(b => b.classList.remove('active'));
+
+      btn.classList.add('active');
+      selectedHistTicker = t;
+      drawHistogram(assetReturns, t);
+    };
+
+    wrap.appendChild(btn);
+  });
+
+  selectedHistTicker = tickers[0];
 }
 
 renderChips();
