@@ -54,6 +54,115 @@ Visual inspiration comes from the Financial Times's clean, annotation-driven cha
 
 **10% of the final grade**
 
+````md
+# Portfolio Allocation Engine
+
+Interactive web-based dashboard for portfolio analysis, risk visualization, and asset allocation.
+
+---
+
+## 🚀 How to run the project
+
+This project is fully static (HTML + JS + D3.js). No build step is required.
+
+### 1. Clone the repository
+
+```bash
+git clone <repo-url>
+cd <repo-name>
+````
+
+---
+
+### 2. Install a local server
+
+You need a local HTTP server because browsers block local file access (CSV loading, etc.).
+
+#### Option A (recommended): npx serve
+
+If you already have Node.js installed:
+
+```bash
+npx serve
+```
+
+Then open the URL shown in the terminal (usually):
+
+```
+http://localhost:3000
+```
+
+---
+
+#### If `npx` is not available
+
+Install Node.js (which includes npm + npx):
+
+* [https://nodejs.org/](https://nodejs.org/)
+
+After installation, verify:
+
+```bash
+node -v
+npm -v
+npx -v
+```
+
+Then run again:
+
+```bash
+npx serve
+```
+
+---
+
+#### Option B: install serve globally
+
+```bash
+npm install -g serve
+serve
+```
+
+---
+
+## 📁 Project structure
+
+```
+.
+├── index.html
+├── style.css
+├── engine.js
+├── data/
+│   └── prices.csv
+└── README.md
+```
+
+---
+
+## ⚠️ Important notes
+
+* Do NOT open `index.html` directly in the browser (`file://...`)
+  → CSV loading will fail due to CORS restrictions.
+
+* Always use a local server (`npx serve` or equivalent)
+
+---
+
+## 🧠 Features
+
+* Asset Explorer (returns, volatility, Sharpe ratio)
+* Correlation matrix heatmap
+* Return distribution histograms
+* Interactive portfolio analytics (WIP)
+
+---
+
+## 🛠 Tech stack
+
+* Vanilla JavaScript
+* D3.js v7
+* HTML / CSS
+
 
 ## Milestone 3 (29th May, 5pm)
 
