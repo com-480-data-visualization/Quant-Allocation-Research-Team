@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Portfolio Allocation Engine</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Portfolio Allocation Engine</h1>
+      <p class="subtitle">Interactive Asset Analysis &amp; Optimization</p>
+    </div>
+    <div class="header-status">
+      <div class="dot" id="statusDot"></div>
+      <span id="statusText">No data loaded</span>
+    </div>
+  </header>
+
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('explorer',this)">01 - Asset Explorer</button>
+    <button class="tab-btn" onclick="switchTab('risk',this)">02 - Risk Estimation</button>
+    <button class="tab-btn" onclick="switchTab('portfolio',this)">03 - Portfolio Builder</button>
+  </div>
+
+  <div class="controls-bar">
+    <span class="control-label">Assets:</span>
+    <div class="chip-list" id="chipList"></div>
+    <input class="ticker-input" id="tickerInput" placeholder="Add ticker" maxlength="6" />
+    <button class="btn-small" onclick="addTicker()">+ Add</button>
+    <span class="control-label" style="margin-left:8px">Window:</span>
+    <div class="window-group">
+      <button class="win-btn" onclick="setWin('1y',this)">1Y</button>
+      <button class="win-btn active" onclick="setWin('3y',this)">3Y</button>
+      <button class="win-btn" onclick="setWin('5y',this)">5Y</button>
+      <button class="win-btn" onclick="setWin('max',this)">Max</button>
+    </div>
+    <button class="btn-load" id="loadBtn" onclick="loadData()">&#9662; Load Data</button>
+  </div>
+
+  <div class="main">
+
+    <!-- === PANEL 1 - ASSET EXPLORER === -->
+    <div class="panel active" id="panel-explorer">
+      <div class="section-title">Asset Explorer</div>
+      <p class="section-desc">Statistical overview: annualised return, volatility, Sharpe ratio, and pairwise correlations.</p>
+
+      <div class="kpi-row">
+        <div class="kpi-card"><div class="kpi-label">Assets</div><div class="kpi-value" id="kpi-n">-</div></div>
+        <div class="kpi-card"><div class="kpi-label">Observations</div><div class="kpi-value" id="kpi-obs">-</div></div>
+        <div class="kpi-card"><div class="kpi-label">Date Range</div><div class="kpi-value" style="font-size:14px" id="kpi-range">-</div></div>
+        <div class="kpi-card"><div class="kpi-label">Best Sharpe</div><div class="kpi-value green" id="kpi-sharpe">-</div></div>
+        <div class="kpi-card"><div class="kpi-label">Best Asset</div><div class="kpi-value blue" id="kpi-best">-</div></div>
+      </div>
+
+      <div class="grid-2-1">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Return vs. Volatility</span>
+            <span class="card-subtitle">Annualised - bubble size = Sharpe</span>
+          </div>
+          <div class="card-body">
+            <div class="chart-wrap" id="scatterWrap"><div class="empty">Load data to display chart</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Summary Statistics</span></div>
+          <div class="card-body" style="padding:0">
+            <div id="statsTableWrap"><div class="empty">Load data</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Correlation Matrix</span>
+            <span class="card-subtitle" id="corrLabel">Pearson - daily log returns</span>
+          </div>
+          <div class="card-body">
+            <div class="chart-wrap" id="heatmapWrap"><div class="empty">Load data</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Return Distribution</span>
+            <span class="card-subtitle">
+              <select id="histAssetSelect" class="inline-select" onchange="renderHistogram()">
+                <option>-</option>
+              </select>
+            </span>
+          </div>
+          <div class="card-body">
+            <div class="chart-wrap" id="histWrap"><div class="empty">Load data</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Cumulative Performance</span>
+          <span class="card-subtitle">Growth of $1</span>
+        </div>
+        <div class="card-body">
+          <div class="chart-wrap" id="cumulWrap"><div class="empty">Load data</div></div>
+        </div>
+      </div>
+    </div>
+
+        <!-- === PANEL 2 - RISK ESTIMATION === -->
+    <div class="panel" id="panel-risk">
+      <div class="section-title">Risk Estimation Studio</div>
+      <p class="section-desc">Compare three covariance estimators and observe how they reshape the dependency structure.</p>
+      <div class="card"><div class="card-body"><div class="empty">Coming next</div></div></div>
+    </div>
+
+    <!-- === PANEL 3 - PORTFOLIO BUILDER === -->
+    <div class="panel" id="panel-portfolio">
+      <div class="section-title">Portfolio Builder</div>
+      <p class="section-desc">Construct optimal portfolios on the efficient frontier.</p>
+      <div class="card"><div class="card-body"><div class="empty">Coming next</div></div></div>
+    </div>
+
+</div>
+
+  </div>
+
+  <script src="engine.js"></script>
+</body>
+</html>

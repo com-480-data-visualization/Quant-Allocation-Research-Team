@@ -7,7 +7,7 @@
 |Florian Dinant|361013| 
 
 
-[Milestone 1](#milestone-1) • [Milestone 2](#milestone-2) • [Milestone 3](#milestone-3)
+[Milestone 1](#milestone-1) | [Milestone 2](#milestone-2) | [Milestone 3](#milestone-3)
 
 ## Milestone 1 (20th March, 5pm)
 
@@ -50,9 +50,47 @@ Our approach aims to make the assumptions of portfolio construction visible and 
 Visual inspiration comes from the Financial Times's clean, annotation-driven chart style, and from Observable notebooks, which make mathematical processes explorable through linked interactive graphics.
 
 **Declaration of Originality:** We confirm that we have not explored this specific dataset combination nor developed this portfolio visualization concept in any previous context (such as ML, ADA courses, or past semester projects). This is an entirely original submission for this class.
+
 ## Milestone 2 (17th April, 5pm)
 
 **10% of the final grade**
+
+Project description (2 pages): [`Milestone2_DataViz.pdf`](Milestone2_DataViz.pdf)
+
+Functional prototype: [`index.html`](index.html)
+
+### How to run locally
+
+The project is fully static (HTML + CSS + JavaScript with D3.js from CDN), but a local HTTP server is required so the browser can load `data/prices.csv`.
+
+```bash
+git clone <repo-url>
+cd Quant-Allocation-Research-Team
+python3 -m http.server 8080
+```
+
+Then open `http://localhost:8080/index.html` and click **Load Data**.
+
+Any other static server works too (`npx serve`, `php -S`, etc.). Opening `index.html` directly with `file://` will fail because of CORS.
+
+### Live demo
+
+The dashboard is also hosted via GitHub Pages: **https://com-480-data-visualization.github.io/Quant-Allocation-Research-Team/**
+
+### Project structure
+
+```
+.
+├── index.html             # main dashboard (3 tabs)
+├── engine.js              # data loading, stats, covariance, optimization, rendering
+├── style.css
+├── data/
+│   ├── prices.csv         # 2010-2025 daily closing prices for 9 assets
+│   └── fetch_data.py
+├── eda.ipynb              # Milestone 1 exploratory analysis
+├── requirements.txt
+└── Milestone2_DataViz.pdf
+```
 
 
 ## Milestone 3 (29th May, 5pm)
@@ -64,4 +102,3 @@ Visual inspiration comes from the Financial Times's clean, annotation-driven cha
 
 - < 24h: 80% of the grade for the milestone
 - < 48h: 70% of the grade for the milestone
-
