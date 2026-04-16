@@ -152,14 +152,52 @@
       </div>
     </div>
 
-        <!-- === PANEL 3 - PORTFOLIO BUILDER === -->
+    <!-- === PANEL 3 - PORTFOLIO BUILDER === -->
     <div class="panel" id="panel-portfolio">
       <div class="section-title">Portfolio Builder</div>
-      <p class="section-desc">Construct optimal portfolios on the efficient frontier.</p>
-      <div class="card"><div class="card-body"><div class="empty">Coming next</div></div></div>
-    </div>
+      <p class="section-desc">Construct optimal portfolios on the efficient frontier. Compare allocation methods.</p>
 
-</div>
+      <div class="controls-inline">
+        <span class="control-label">Covariance:</span>
+        <select id="pfCovSelect" class="inline-select" onchange="renderPortfolio()">
+          <option value="sample">Sample</option>
+          <option value="lw">Ledoit-Wolf</option>
+          <option value="ewma">EWMA</option>
+        </select>
+        <span class="control-label" style="margin-left:12px">Risk-free rate (%):</span>
+        <input type="number" id="rfRate" class="inline-input" value="4.0" step="0.5" min="0" max="15" onchange="renderPortfolio()">
+        <span class="control-label" style="margin-left:12px">Target return (%):</span>
+        <input type="range" id="targetRetSlider" min="5" max="50" step="0.5" value="15" oninput="updateTargetLabel();renderPortfolio()">
+        <span id="targetRetLabel" class="control-value">15.0%</span>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Efficient Frontier</span>
+            <span class="card-subtitle">with special portfolios</span>
+          </div>
+          <div class="card-body">
+            <div class="chart-wrap" id="frontierWrap"><div class="empty">Load data</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Portfolio Weights - All Strategies</span>
+            <span class="card-subtitle">Stacked by asset</span>
+          </div>
+          <div class="card-body">
+            <div class="chart-wrap" id="stackedWeightsWrap"><div class="empty">Load data</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><span class="card-title">Portfolio Comparison</span></div>
+        <div class="card-body" style="padding:0">
+          <div id="pfCompareWrap"><div class="empty">Load data</div></div>
+        </div>
+      </div>
+    </div>
 
   </div>
 

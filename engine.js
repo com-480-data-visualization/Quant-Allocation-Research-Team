@@ -44,6 +44,7 @@ function switchTab(name, el) {
   requestAnimationFrame(() => {
     const tickers = STATE.active || STATE.tickers;
     if (name === 'risk') renderRisk();
+    if (name === 'portfolio') renderPortfolio();
     if (name === 'explorer') renderExplorer(tickers);
   });
 }
@@ -136,8 +137,10 @@ function computeAndRender() {
   filterPrices(tickers);
   computeStats(tickers);
   computeCovariances(tickers);
+  computePortfolios(tickers);
   renderExplorer(tickers);
   renderRisk();
+  renderPortfolio();
 }
 
 function filterPrices(tickers) {
@@ -282,6 +285,36 @@ function computeCovariances(tickers) {
 
 // ----- Matrix utilities -----
 
+function matInv(A) {
+  const n = A.length;
+  const aug = A.map((row, i) => {
+    const r = new Float64Array(2 * n);
+    for (let j = 0; j < n; j++) r[j] = row[j];
+    r[n + i] = 1;
+    return r;
+  });
+  for (let c = 0; c < n; c++) {
+    let maxR = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(aug[r][c]) > Math.abs(aug[maxR][c])) maxR = r;
+    [aug[c], aug[maxR]] = [aug[maxR], aug[c]];
+    const piv = aug[c][c];
+    if (Math.abs(piv) < 1e-14) return null;
+    for (let j = 0; j < 2 * n; j++) aug[c][j] /= piv;
+    for (let r = 0; r < n; r++) {
+      if (r === c) continue;
+      const f = aug[r][c];
+      for (let j = 0; j < 2 * n; j++) aug[r][j] -= f * aug[c][j];
+    }
+  }
+  return aug.map(r => Array.from(r.slice(n)));
+}
+
+function matVecMul(A, v) {
+  return A.map(row => d3.sum(row.map((a, j) => a * v[j])));
+}
+
+function dot(a, b) { return d3.sum(a.map((v, i) => v * b[i])); }
+
 function eigenvalues(A) {
   const n = A.length;
   let M = A.map(r => [...r]);
@@ -309,6 +342,132 @@ function eigenvalues(A) {
   }
   for (let i = 0; i < n; i++) eigvals.push(M[i][i]);
   return eigvals.sort((a, b) => b - a);
+}
+
+// ----- Portfolio optimisation -----
+
+function minVariancePortfolio(cov) {
+  const inv = matInv(cov);
+  if (!inv) return null;
+  const ones = new Array(cov.length).fill(1);
+  const w = matVecMul(inv, ones);
+  const s = d3.sum(w);
+  return w.map(v => v / s);
+}
+
+function tangencyPortfolio(cov, mu, rf) {
+  const inv = matInv(cov);
+  if (!inv) return null;
+  const excess = mu.map(m => m - rf);
+  const w = matVecMul(inv, excess);
+  const s = d3.sum(w);
+  if (Math.abs(s) < 1e-14) return null;
+  return w.map(v => v / s);
+}
+
+function riskParityPortfolio(cov) {
+  const n = cov.length;
+  let w = new Array(n).fill(1 / n);
+  for (let iter = 0; iter < 500; iter++) {
+    const sigma_w = matVecMul(cov, w);
+    const portVol = Math.sqrt(dot(w, sigma_w));
+    const mrc = sigma_w.map(s => s / portVol);
+    const rc = w.map((wi, i) => wi * mrc[i]);
+    const target = portVol / n;
+    const newW = w.map((wi, i) => wi * target / (rc[i] || 1e-10));
+    const s = d3.sum(newW);
+    w = newW.map(v => v / s);
+  }
+  return w;
+}
+
+function equalWeightPortfolio(n) {
+  return new Array(n).fill(1 / n);
+}
+
+function meanVariancePortfolio(cov, mu, targetRet) {
+  const n = cov.length;
+  const inv = matInv(cov);
+  if (!inv) return null;
+  const ones = Array(n).fill(1);
+  const a = dot(ones, matVecMul(inv, ones));
+  const b = dot(ones, matVecMul(inv, mu));
+  const c = dot(mu, matVecMul(inv, mu));
+  const det = a * c - b * b;
+  if (Math.abs(det) < 1e-18) return null;
+  const l1 = (c - b * targetRet) / det;
+  const l2 = (a * targetRet - b) / det;
+  const w = [];
+  for (let j = 0; j < n; j++) {
+    let wj = 0;
+    for (let k = 0; k < n; k++) wj += inv[j][k] * (l1 + l2 * mu[k]);
+    w.push(wj);
+  }
+  return w;
+}
+
+function updateTargetLabel() {
+  document.getElementById('targetRetLabel').textContent =
+    parseFloat(document.getElementById('targetRetSlider').value).toFixed(1) + '%';
+}
+
+function portfolioStats(w, mu, cov) {
+  const ret = dot(w, mu);
+  const vol = Math.sqrt(dot(w, matVecMul(cov, w)));
+  return { ret, vol, sharpe: ret / vol };
+}
+
+function efficientFrontier(cov, mu, nPoints) {
+  const n = cov.length;
+  const inv = matInv(cov);
+  if (!inv) return [];
+  const ones = Array(n).fill(1);
+  const a = dot(ones, matVecMul(inv, ones));
+  const b = dot(ones, matVecMul(inv, mu));
+  const c = dot(mu, matVecMul(inv, mu));
+  const det = a * c - b * b;
+  if (Math.abs(det) < 1e-18) return [];
+
+  const muMin = b / a;
+  const muMax = d3.max(mu) * 1.2;
+  const pts = [];
+  for (let i = 0; i <= nPoints; i++) {
+    const target = muMin + (muMax - muMin) * i / nPoints;
+    const l1 = (c - b * target) / det;
+    const l2 = (a * target - b) / det;
+    const w = [];
+    for (let j = 0; j < n; j++) {
+      let wj = 0;
+      for (let k = 0; k < n; k++) wj += inv[j][k] * (l1 + l2 * mu[k]);
+      w.push(wj);
+    }
+    const vol = Math.sqrt(dot(w, matVecMul(cov, w)));
+    pts.push({ ret: target, vol, w });
+  }
+  return pts;
+}
+
+function computePortfolios(tickers) {
+  const getCov = () => {
+    const sel = document.getElementById('pfCovSelect').value;
+    return sel === 'lw' ? STATE.covLW : sel === 'ewma' ? STATE.covEWMA : STATE.covSample;
+  };
+  const daily = getCov();
+  const p = tickers.length;
+  const cov = daily.map(r => Array.from(r).map(v => v * TRADING_DAYS));
+  const mu = tickers.map(t => STATE.annRet[t]);
+  const rf = (parseFloat(document.getElementById('rfRate').value) || 0) / 100;
+
+  const targetRet = (parseFloat(document.getElementById('targetRetSlider').value) || 15) / 100;
+
+  STATE.portfolios.minvar = minVariancePortfolio(cov);
+  STATE.portfolios.tangency = tangencyPortfolio(cov, mu, rf);
+  STATE.portfolios.riskparity = riskParityPortfolio(cov);
+  STATE.portfolios.meanvar = meanVariancePortfolio(cov, mu, targetRet);
+  STATE.portfolios.frontier = efficientFrontier(cov, mu, 80);
+  STATE.portfolios.mu = mu;
+  STATE.portfolios.cov = cov;
+  STATE.portfolios.rf = rf;
 }
 
 // ----- Tooltip -----
@@ -681,6 +840,177 @@ function renderConditionTable(S, LW, EW) {
       <tr><td>Condition number</td><td class="num">${cond(S)}</td><td class="num">${cond(LW)}</td><td class="num">${cond(EW)}</td></tr>
       <tr><td>Frobenius dist. to Sample</td><td class="num">0</td><td class="num">${frobDiff(S, LW)}</td><td class="num">${frobDiff(S, EW)}</td></tr>
     </tbody></table>`;
+}
+
+// ===============================================
+//  RENDERERS - Tab 3: Portfolio Builder
+// ===============================================
+
+function renderPortfolio() {
+  if (!STATE.logRet) return;
+  const tickers = STATE.active || STATE.tickers;
+  computePortfolios(tickers);
+  renderFrontier(tickers);
+  renderStackedWeights(tickers);
+  renderPortfolioComparison(tickers);
+}
+
+function renderFrontier(tickers) {
+  const wrap = document.getElementById('frontierWrap');
+  wrap.innerHTML = '';
+  const frontier = STATE.portfolios.frontier;
+  if (!frontier.length) return;
+
+  const W = wrap.clientWidth, H = 340;
+  const m = { t: 20, r: 20, b: 45, l: 60 };
+  const svg = d3.select(wrap).append('svg').attr('class', 'chart').attr('viewBox', `0 0 ${W} ${H}`);
+
+  const x = d3.scaleLinear()
+    .domain([d3.min(frontier, d => d.vol) * .85 * 100, d3.max(frontier, d => d.vol) * 1.15 * 100])
+    .range([m.l, W - m.r]);
+  const y = d3.scaleLinear()
+    .domain([d3.min(frontier, d => d.ret) * 100 - 1, d3.max(frontier, d => d.ret) * 100 + 1])
+    .range([H - m.b, m.t]);
+
+  svg.append('g').attr('transform', `translate(0,${H - m.b})`).call(d3.axisBottom(x).ticks(6).tickFormat(d => d.toFixed(0) + '%'))
+    .call(g => g.select('.domain').remove());
+  svg.append('g').attr('transform', `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(6).tickFormat(d => d.toFixed(0) + '%'))
+    .call(g => g.select('.domain').remove());
+  svg.append('text').attr('x', W / 2).attr('y', H - 4).attr('text-anchor', 'middle').attr('font-size', 11).attr('fill', '#888').text('Portfolio Volatility');
+  svg.append('text').attr('transform', 'rotate(-90)').attr('x', -H / 2).attr('y', 14).attr('text-anchor', 'middle').attr('font-size', 11).attr('fill', '#888').text('Expected Return');
+
+  const line = d3.line().x(d => x(d.vol * 100)).y(d => y(d.ret * 100)).curve(d3.curveMonotoneX);
+  const path = svg.append('path').datum(frontier).attr('d', line)
+    .attr('fill', 'none').attr('stroke', '#2563eb').attr('stroke-width', 2);
+  const totalLen = path.node().getTotalLength();
+  path.attr('stroke-dasharray', totalLen).attr('stroke-dashoffset', totalLen)
+    .transition().duration(800).attr('stroke-dashoffset', 0);
+
+  tickers.forEach((t, i) => {
+    svg.append('circle').attr('cx', x(STATE.annVol[t] * 100)).attr('cy', y(STATE.annRet[t] * 100))
+      .attr('r', 4).attr('fill', '#aaa').attr('stroke', 'white').attr('stroke-width', 1);
+    svg.append('text').attr('x', x(STATE.annVol[t] * 100) + 6).attr('y', y(STATE.annRet[t] * 100) + 3)
+      .attr('font-size', 9).attr('fill', '#888').text(t);
+  });
+
+  const mu = STATE.portfolios.mu;
+  const cov = STATE.portfolios.cov;
+  const rf = STATE.portfolios.rf;
+  const specials = [
+    { key: 'minvar', label: 'Min Var', color: '#16a34a' },
+    { key: 'tangency', label: 'Tangency', color: '#dc2626' },
+    { key: 'riskparity', label: 'Risk Parity', color: '#d97706' },
+    { key: 'meanvar', label: 'Mean-Var', color: '#7c3aed' },
+  ];
+
+  specials.forEach(sp => {
+    const w = STATE.portfolios[sp.key];
+    if (!w) return;
+    const st = portfolioStats(w, mu, cov);
+    const cx = x(st.vol * 100), cy = y(st.ret * 100);
+    svg.append('circle').attr('cx', cx).attr('cy', cy)
+      .attr('r', 7).attr('fill', sp.color).attr('stroke', 'white').attr('stroke-width', 2)
+      .on('mousemove', e => showTooltip(
+        `<b>${sp.label}</b><br>Return: ${(st.ret*100).toFixed(1)}%<br>Vol: ${(st.vol*100).toFixed(1)}%<br>Sharpe: ${st.sharpe.toFixed(2)}`, e))
+      .on('mouseleave', hideTooltip);
+    svg.append('text').attr('x', cx + 10).attr('y', cy + 3)
+      .attr('font-size', 9).attr('fill', sp.color).attr('font-weight', 600).text(sp.label);
+  });
+
+  if (STATE.portfolios.tangency) {
+    const tSt = portfolioStats(STATE.portfolios.tangency, mu, cov);
+    svg.append('line')
+      .attr('x1', x(0)).attr('y1', y(rf * 100))
+      .attr('x2', x(tSt.vol * 200)).attr('y2', y((rf + (tSt.ret - rf) / tSt.vol * tSt.vol * 2) * 100))
+      .attr('stroke', '#dc2626').attr('stroke-width', 1).attr('stroke-dasharray', '5,4').attr('stroke-opacity', .5);
+  }
+}
+
+function renderStackedWeights(tickers) {
+  const wrap = document.getElementById('stackedWeightsWrap');
+  wrap.innerHTML = '';
+  const methods = [
+    { key: 'minvar', label: 'Min Var' },
+    { key: 'tangency', label: 'Tangency' },
+    { key: 'riskparity', label: 'Risk Parity' },
+    { key: 'meanvar', label: 'Mean-Var' },
+  ];
+  const available = methods.filter(m => STATE.portfolios[m.key]);
+  if (!available.length) { wrap.innerHTML = '<div class="empty">Not available</div>'; return; }
+
+  const W = wrap.clientWidth, H = 320;
+  const mg = { t: 15, r: 15, b: 50, l: 50 };
+  const svg = d3.select(wrap).append('svg').attr('class', 'chart').attr('viewBox', `0 0 ${W} ${H}`);
+
+  const x0 = d3.scaleBand().domain(available.map(m => m.label)).range([mg.l, W - mg.r]).padding(.25);
+  const y = d3.scaleLinear().domain([0, 1]).range([H - mg.b, mg.t]);
+
+  svg.append('g').attr('transform', `translate(0,${H - mg.b})`)
+    .call(d3.axisBottom(x0)).call(g => g.select('.domain').remove());
+  svg.append('g').attr('transform', `translate(${mg.l},0)`)
+    .call(d3.axisLeft(y).ticks(5).tickFormat(d3.format('.0%'))).call(g => g.select('.domain').remove());
+
+  available.forEach(method => {
+    const weights = STATE.portfolios[method.key];
+    const absW = weights.map(v => Math.max(0, v));
+    const total = d3.sum(absW) || 1;
+    const normed = absW.map(v => v / total);
+
+    let cumY = 0;
+    tickers.forEach((t, i) => {
+      if (normed[i] < 0.005) { cumY += normed[i]; return; }
+      const barY = y(cumY + normed[i]);
+      const barH = y(cumY) - barY;
+      const idx = STATE.tickers.indexOf(t);
+      svg.append('rect')
+        .attr('x', x0(method.label)).attr('y', barY)
+        .attr('width', x0.bandwidth()).attr('height', barH)
+        .attr('fill', col(idx)).attr('fill-opacity', .85)
+        .on('mousemove', e => showTooltip(`<b>${method.label}</b><br>${t}: ${(weights[i]*100).toFixed(1)}%`, e))
+        .on('mouseleave', hideTooltip);
+      if (barH > 14) {
+        svg.append('text')
+          .attr('x', x0(method.label) + x0.bandwidth() / 2).attr('y', barY + barH / 2 + 4)
+          .attr('text-anchor', 'middle').attr('font-size', 9).attr('fill', 'white').attr('font-weight', 600)
+          .text(t);
+      }
+      cumY += normed[i];
+    });
+  });
+
+  const legendDiv = document.createElement('div');
+  legendDiv.className = 'legend-row';
+  tickers.forEach((t, i) => {
+    legendDiv.innerHTML += `<span class="legend-item"><span class="legend-swatch" style="background:${col(STATE.tickers.indexOf(t))}"></span>${t}</span>`;
+  });
+  wrap.appendChild(legendDiv);
+}
+
+function renderPortfolioComparison(tickers) {
+  const wrap = document.getElementById('pfCompareWrap');
+  const mu = STATE.portfolios.mu;
+  const cov = STATE.portfolios.cov;
+  const methods = [
+    { key: 'minvar', label: 'Min Variance' },
+    { key: 'tangency', label: 'Tangency' },
+    { key: 'riskparity', label: 'Risk Parity' },
+    { key: 'meanvar', label: 'Mean-Variance' },
+  ];
+  let html = `<table class="stats-table"><thead><tr><th>Method</th><th class="num">Return</th><th class="num">Volatility</th><th class="num">Sharpe</th><th class="num">Max Weight</th></tr></thead><tbody>`;
+  methods.forEach(m => {
+    const w = STATE.portfolios[m.key];
+    if (!w) { html += `<tr><td>${m.label}</td><td colspan="4" class="num">-</td></tr>`; return; }
+    const st = portfolioStats(w, mu, cov);
+    html += `<tr>
+      <td class="ticker-cell">${m.label}</td>
+      <td class="num ${st.ret >= 0 ? 'pos' : 'neg'}">${(st.ret*100).toFixed(1)}%</td>
+      <td class="num">${(st.vol*100).toFixed(1)}%</td>
+      <td class="num">${st.sharpe.toFixed(2)}</td>
+      <td class="num">${(d3.max(w)*100).toFixed(1)}%</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
 }
 
 // ----- Init -----
