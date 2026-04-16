@@ -43,8 +43,14 @@ function switchTab(name, el) {
   if (!STATE.logRet) return;
   requestAnimationFrame(() => {
     const tickers = STATE.active || STATE.tickers;
+    if (name === 'risk') renderRisk();
     if (name === 'explorer') renderExplorer(tickers);
   });
+}
+
+function updateEwmaLabel() {
+  document.getElementById('ewmaLambdaLabel').textContent =
+    parseFloat(document.getElementById('ewmaLambda').value).toFixed(2);
 }
 
 // ----- Chip rendering -----
@@ -129,7 +135,9 @@ function computeAndRender() {
   const tickers = STATE.active || STATE.tickers;
   filterPrices(tickers);
   computeStats(tickers);
+  computeCovariances(tickers);
   renderExplorer(tickers);
+  renderRisk();
 }
 
 function filterPrices(tickers) {
@@ -190,6 +198,117 @@ function computeStats(tickers) {
     });
   });
   STATE.corr = corrMat;
+}
+
+// ----- Covariance estimators -----
+
+function sampleCov(tickers) {
+  const n = STATE.logRet.length;
+  const p = tickers.length;
+  const means = tickers.map(t => d3.mean(STATE.logRet.map(r => r[t])));
+  const mat = Array.from({ length: p }, () => new Float64Array(p));
+  for (let i = 0; i < p; i++) {
+    const vi = STATE.logRet.map(r => r[tickers[i]]);
+    for (let j = i; j < p; j++) {
+      const vj = STATE.logRet.map(r => r[tickers[j]]);
+      let s = 0;
+      for (let k = 0; k < n; k++) s += (vi[k] - means[i]) * (vj[k] - means[j]);
+      mat[i][j] = mat[j][i] = s / (n - 1);
+    }
+  }
+  return mat;
+}
+
+function ledoitWolf(tickers) {
+  const S = sampleCov(tickers);
+  const p = tickers.length;
+  const n = STATE.logRet.length;
+  const trS = d3.sum(d3.range(p), i => S[i][i]);
+  const mu = trS / p;
+  const target = Array.from({ length: p }, (_, i) =>
+    Float64Array.from({ length: p }, (_, j) => i === j ? mu : 0));
+
+  const X = tickers.map(t => STATE.logRet.map(r => r[t]));
+  const means = tickers.map(t => d3.mean(STATE.logRet.map(r => r[t])));
+  let delta2 = 0;
+  for (let i = 0; i < p; i++)
+    for (let j = 0; j < p; j++)
+      delta2 += (S[i][j] - target[i][j]) ** 2;
+
+  let beta2 = 0;
+  for (let k = 0; k < n; k++) {
+    let bk = 0;
+    for (let i = 0; i < p; i++)
+      for (let j = 0; j < p; j++)
+        bk += ((X[i][k] - means[i]) * (X[j][k] - means[j]) - S[i][j]) ** 2;
+    beta2 += bk;
+  }
+  beta2 /= n * n;
+  const alpha = Math.min(beta2 / delta2, 1);
+
+  const res = Array.from({ length: p }, () => new Float64Array(p));
+  for (let i = 0; i < p; i++)
+    for (let j = 0; j < p; j++)
+      res[i][j] = alpha * target[i][j] + (1 - alpha) * S[i][j];
+  STATE._lwAlpha = alpha;
+  return res;
+}
+
+function ewmaCov(tickers) {
+  const lambda = parseFloat(document.getElementById('ewmaLambda').value) || 0.94;
+  const p = tickers.length;
+  const n = STATE.logRet.length;
+  const means = tickers.map(t => d3.mean(STATE.logRet.map(r => r[t])));
+  const mat = Array.from({ length: p }, () => new Float64Array(p));
+
+  for (let i = 0; i < p; i++)
+    for (let j = i; j < p; j++) {
+      let s = 0, w = 0;
+      for (let k = n - 1; k >= 0; k--) {
+        const wk = Math.pow(lambda, n - 1 - k);
+        s += wk * (STATE.logRet[k][tickers[i]] - means[i]) * (STATE.logRet[k][tickers[j]] - means[j]);
+        w += wk;
+      }
+      mat[i][j] = mat[j][i] = s / w;
+    }
+  return mat;
+}
+
+function computeCovariances(tickers) {
+  STATE.covSample = sampleCov(tickers);
+  STATE.covLW = ledoitWolf(tickers);
+  STATE.covEWMA = ewmaCov(tickers);
+}
+
+// ----- Matrix utilities -----
+
+function eigenvalues(A) {
+  const n = A.length;
+  let M = A.map(r => [...r]);
+  const eigvals = [];
+  for (let iter = 0; iter < 200 * n; iter++) {
+    let maxOff = 0, p = 0, q = 1;
+    for (let i = 0; i < n; i++)
+      for (let j = i + 1; j < n; j++)
+        if (Math.abs(M[i][j]) > maxOff) { maxOff = Math.abs(M[i][j]); p = i; q = j; }
+    if (maxOff < 1e-12) break;
+    const theta = (M[q][q] - M[p][p]) / (2 * M[p][q]);
+    const t = Math.sign(theta) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+    const c = 1 / Math.sqrt(t * t + 1), s = t * c;
+    const tau = s / (1 + c);
+    const app = M[p][p], aqq = M[q][q], apq = M[p][q];
+    M[p][p] -= t * apq;
+    M[q][q] += t * apq;
+    M[p][q] = M[q][p] = 0;
+    for (let r = 0; r < n; r++) {
+      if (r === p || r === q) continue;
+      const rp = M[r][p], rq = M[r][q];
+      M[r][p] = M[p][r] = rp - s * (rq + tau * rp);
+      M[r][q] = M[q][r] = rq + s * (rp - tau * rq);
+    }
+  }
+  for (let i = 0; i < n; i++) eigvals.push(M[i][i]);
+  return eigvals.sort((a, b) => b - a);
 }
 
 // ----- Tooltip -----
@@ -446,6 +565,122 @@ function renderCumulative(tickers) {
     legendDiv.innerHTML += `<span class="legend-item"><span class="legend-swatch" style="background:${col(STATE.tickers.indexOf(t))}"></span>${t}</span>`;
   });
   wrap.appendChild(legendDiv);
+}
+
+// ===============================================
+//  RENDERERS - Tab 2: Risk Estimation
+// ===============================================
+
+function renderRisk() {
+  if (!STATE.logRet) return;
+  const tickers = STATE.active || STATE.tickers;
+  STATE.covEWMA = ewmaCov(tickers);
+
+  const annFactor = TRADING_DAYS;
+  const toArr = mat => mat.map(r => Array.from(r).map(v => v * annFactor));
+  const annSample = toArr(STATE.covSample);
+  const annLW = toArr(STATE.covLW);
+  const annEWMA = toArr(STATE.covEWMA);
+
+  const allVals = [annSample, annLW, annEWMA].flatMap(m => m.flatMap(r => r));
+  const domain = [d3.min(allVals), d3.max(allVals)];
+
+  const wrap1 = document.getElementById('covSampleWrap');
+  const wrap2 = document.getElementById('covLWWrap');
+  const wrap3 = document.getElementById('covEWMAWrap');
+  wrap1.innerHTML = ''; wrap2.innerHTML = ''; wrap3.innerHTML = '';
+
+  const showDiff = document.getElementById('diffToggle') && document.getElementById('diffToggle').checked;
+  const annotateOk = tickers.length <= 7;
+
+  if (showDiff) {
+    const diffLW = annLW.map((r, i) => r.map((v, j) => v - annSample[i][j]));
+    const diffEW = annEWMA.map((r, i) => r.map((v, j) => v - annSample[i][j]));
+    const diffInterp = d3.interpolateRdBu;
+
+    const maxAbsLW = d3.max(diffLW.flatMap(r => r).map(Math.abs)) || 0.001;
+    const maxAbsEW = d3.max(diffEW.flatMap(r => r).map(Math.abs)) || 0.001;
+
+    drawHeatmap(wrap1, annSample, tickers, d3.interpolateYlOrRd, domain, annotateOk);
+    drawHeatmap(wrap2, diffLW, tickers, diffInterp, [maxAbsLW, -maxAbsLW], annotateOk);
+    drawHeatmap(wrap3, diffEW, tickers, diffInterp, [maxAbsEW, -maxAbsEW], annotateOk);
+  } else {
+    const interp = d3.interpolateYlOrRd;
+    drawHeatmap(wrap1, annSample, tickers, interp, domain, annotateOk);
+    drawHeatmap(wrap2, annLW, tickers, interp, domain, annotateOk);
+    drawHeatmap(wrap3, annEWMA, tickers, interp, domain, annotateOk);
+  }
+
+  document.getElementById('lwAlpha').textContent = 'α = ' + (STATE._lwAlpha || 0).toFixed(3);
+  document.getElementById('ewmaInfo').textContent = 'λ = ' + (document.getElementById('ewmaLambda').value);
+
+  renderEigenSpectrum(tickers, annSample, annLW, annEWMA);
+  renderConditionTable(annSample, annLW, annEWMA);
+}
+
+function renderEigenSpectrum(tickers, S, LW, EW) {
+  const wrap = document.getElementById('eigenWrap');
+  wrap.innerHTML = '';
+  const eigS = eigenvalues(S.map(r => [...r]));
+  const eigLW = eigenvalues(LW.map(r => [...r]));
+  const eigEW = eigenvalues(EW.map(r => [...r]));
+
+  const W = wrap.clientWidth, H = 250;
+  const m = { t: 15, r: 15, b: 40, l: 55 };
+  const svg = d3.select(wrap).append('svg').attr('class', 'chart').attr('viewBox', `0 0 ${W} ${H}`);
+
+  const n = eigS.length;
+  const x = d3.scaleBand().domain(d3.range(n)).range([m.l, W - m.r]).padding(.3);
+  const allE = [...eigS, ...eigLW, ...eigEW];
+  const y = d3.scaleLinear().domain([0, d3.max(allE) * 1.1]).range([H - m.b, m.t]);
+
+  svg.append('g').attr('transform', `translate(0,${H - m.b})`)
+    .call(d3.axisBottom(x).tickFormat(i => i + 1)).call(g => g.select('.domain').remove());
+  svg.append('g').attr('transform', `translate(${m.l},0)`)
+    .call(d3.axisLeft(y).ticks(5)).call(g => g.select('.domain').remove());
+  svg.append('text').attr('x', W / 2).attr('y', H - 2).attr('text-anchor', 'middle')
+    .attr('font-size', 10).attr('fill', '#888').text('Eigenvalue index');
+
+  const bw = x.bandwidth() / 3;
+  const colors = ['#2563eb', '#16a34a', '#d97706'];
+  const names = ['Sample', 'Ledoit-Wolf', 'EWMA'];
+  [eigS, eigLW, eigEW].forEach((eig, si) => {
+    eig.forEach((v, i) => {
+      svg.append('rect').attr('x', x(i) + si * bw).attr('y', y(v))
+        .attr('width', bw - 1).attr('height', y(0) - y(v))
+        .attr('fill', colors[si]).attr('fill-opacity', .75)
+        .on('mousemove', e => showTooltip(`${names[si]} λ${i + 1}: ${v.toFixed(4)}`, e))
+        .on('mouseleave', hideTooltip);
+    });
+  });
+
+  const legendDiv = document.createElement('div');
+  legendDiv.className = 'legend-row';
+  names.forEach((nm, i) => {
+    legendDiv.innerHTML += `<span class="legend-item"><span class="legend-swatch" style="background:${colors[i]}"></span>${nm}</span>`;
+  });
+  wrap.appendChild(legendDiv);
+}
+
+function renderConditionTable(S, LW, EW) {
+  const wrap = document.getElementById('condTableWrap');
+  const cond = mat => {
+    const e = eigenvalues(mat.map(r => [...r]));
+    return (d3.max(e) / d3.min(e.filter(v => v > 1e-12))).toFixed(1);
+  };
+  const frobDiff = (A, B) => {
+    let s = 0;
+    for (let i = 0; i < A.length; i++)
+      for (let j = 0; j < A.length; j++)
+        s += (A[i][j] - B[i][j]) ** 2;
+    return Math.sqrt(s).toFixed(4);
+  };
+  wrap.innerHTML = `<table class="stats-table">
+    <thead><tr><th>Metric</th><th class="num">Sample</th><th class="num">Ledoit-Wolf</th><th class="num">EWMA</th></tr></thead>
+    <tbody>
+      <tr><td>Condition number</td><td class="num">${cond(S)}</td><td class="num">${cond(LW)}</td><td class="num">${cond(EW)}</td></tr>
+      <tr><td>Frobenius dist. to Sample</td><td class="num">0</td><td class="num">${frobDiff(S, LW)}</td><td class="num">${frobDiff(S, EW)}</td></tr>
+    </tbody></table>`;
 }
 
 // ----- Init -----

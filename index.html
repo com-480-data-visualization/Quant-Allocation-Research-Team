@@ -109,14 +109,50 @@
       </div>
     </div>
 
-        <!-- === PANEL 2 - RISK ESTIMATION === -->
+    <!-- === PANEL 2 - RISK ESTIMATION === -->
     <div class="panel" id="panel-risk">
       <div class="section-title">Risk Estimation Studio</div>
       <p class="section-desc">Compare three covariance estimators and observe how they reshape the dependency structure.</p>
-      <div class="card"><div class="card-body"><div class="empty">Coming next</div></div></div>
+
+      <div class="controls-inline">
+        <span class="control-label">EWMA λ:</span>
+        <input type="range" id="ewmaLambda" min="0.88" max="0.99" step="0.01" value="0.94" oninput="updateEwmaLabel();renderRisk()">
+        <span id="ewmaLambdaLabel" class="control-value">0.94</span>
+        <label class="toggle-label" style="margin-left:16px">
+          <input type="checkbox" id="diffToggle" onchange="renderRisk()"> Show difference vs. Sample
+        </label>
+      </div>
+
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-header"><span class="card-title">Sample Covariance</span></div>
+          <div class="card-body"><div class="chart-wrap" id="covSampleWrap"><div class="empty">Load data</div></div></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Ledoit-Wolf Shrinkage</span><span class="card-subtitle" id="lwAlpha">-</span></div>
+          <div class="card-body"><div class="chart-wrap" id="covLWWrap"><div class="empty">Load data</div></div></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">EWMA</span><span class="card-subtitle" id="ewmaInfo">-</span></div>
+          <div class="card-body"><div class="chart-wrap" id="covEWMAWrap"><div class="empty">Load data</div></div></div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header"><span class="card-title">Eigenvalue Spectrum</span><span class="card-subtitle">Sorted eigenvalues per estimator</span></div>
+          <div class="card-body"><div class="chart-wrap" id="eigenWrap"><div class="empty">Load data</div></div></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Condition Numbers</span></div>
+          <div class="card-body">
+            <div id="condTableWrap"><div class="empty">Load data</div></div>
+          </div>
+        </div>
+      </div>
     </div>
 
-    <!-- === PANEL 3 - PORTFOLIO BUILDER === -->
+        <!-- === PANEL 3 - PORTFOLIO BUILDER === -->
     <div class="panel" id="panel-portfolio">
       <div class="section-title">Portfolio Builder</div>
       <p class="section-desc">Construct optimal portfolios on the efficient frontier.</p>
