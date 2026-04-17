@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Portfolio Allocation Engine</title>
   <link rel="stylesheet" href="style.css" />
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
 </head>
 <body>
   <header>
@@ -20,9 +20,9 @@
   </header>
 
   <div class="tabs">
-    <button class="tab-btn active" onclick="switchTab('explorer',this)">01 · Asset Explorer</button>
-    <button class="tab-btn" onclick="switchTab('risk',this)">02 · Risk Estimation</button>
-    <button class="tab-btn" onclick="switchTab('portfolio',this)">03 · Portfolio Builder</button>
+    <button class="tab-btn active" onclick="switchTab('explorer',this)">01 - Asset Explorer</button>
+    <button class="tab-btn" onclick="switchTab('risk',this)">02 - Risk Estimation</button>
+    <button class="tab-btn" onclick="switchTab('portfolio',this)">03 - Portfolio Builder</button>
   </div>
 
   <div class="controls-bar">
@@ -35,31 +35,31 @@
       <button class="win-btn" onclick="setWin('1y',this)">1Y</button>
       <button class="win-btn active" onclick="setWin('3y',this)">3Y</button>
       <button class="win-btn" onclick="setWin('5y',this)">5Y</button>
-      <button class="win-btn" onclick="setWin('10y',this)">10Y</button>
+      <button class="win-btn" onclick="setWin('max',this)">Max</button>
     </div>
-    <button class="btn-load" id="loadBtn" onclick="loadData()">&#11015; Load Data</button>
+    <button class="btn-load" id="loadBtn" onclick="loadData()">&#9662; Load Data</button>
   </div>
 
   <div class="main">
 
-    <!-- PANEL 1 — ASSET EXPLORER -->
+    <!-- === PANEL 1 - ASSET EXPLORER === -->
     <div class="panel active" id="panel-explorer">
       <div class="section-title">Asset Explorer</div>
       <p class="section-desc">Statistical overview: annualised return, volatility, Sharpe ratio, and pairwise correlations.</p>
 
       <div class="kpi-row">
-        <div class="kpi-card"><div class="kpi-label">Assets</div><div class="kpi-value" id="kpi-n">—</div></div>
-        <div class="kpi-card"><div class="kpi-label">Observations</div><div class="kpi-value" id="kpi-obs">—</div></div>
-        <div class="kpi-card"><div class="kpi-label">Date Range</div><div class="kpi-value" style="font-size:14px" id="kpi-range">—</div></div>
-        <div class="kpi-card"><div class="kpi-label">Best Sharpe</div><div class="kpi-value green" id="kpi-sharpe">—</div></div>
-        <div class="kpi-card"><div class="kpi-label">Best Asset</div><div class="kpi-value blue" id="kpi-best">—</div></div>
+        <div class="kpi-card"><div class="kpi-label">Assets</div><div class="kpi-value" id="kpi-n">-</div></div>
+        <div class="kpi-card"><div class="kpi-label">Observations</div><div class="kpi-value" id="kpi-obs">-</div></div>
+        <div class="kpi-card"><div class="kpi-label">Date Range</div><div class="kpi-value" style="font-size:14px" id="kpi-range">-</div></div>
+        <div class="kpi-card"><div class="kpi-label">Best Sharpe</div><div class="kpi-value green" id="kpi-sharpe">-</div></div>
+        <div class="kpi-card"><div class="kpi-label">Best Asset</div><div class="kpi-value blue" id="kpi-best">-</div></div>
       </div>
 
       <div class="grid-2-1">
         <div class="card">
           <div class="card-header">
             <span class="card-title">Return vs. Volatility</span>
-            <span class="card-subtitle">Annualised · bubble = Sharpe</span>
+            <span class="card-subtitle">Annualised - bubble size = Sharpe</span>
           </div>
           <div class="card-body">
             <div class="chart-wrap" id="scatterWrap"><div class="empty">Load data to display chart</div></div>
@@ -77,7 +77,7 @@
         <div class="card">
           <div class="card-header">
             <span class="card-title">Correlation Matrix</span>
-            <span class="card-subtitle" id="corrLabel">—</span>
+            <span class="card-subtitle" id="corrLabel">Pearson - daily log returns</span>
           </div>
           <div class="card-body">
             <div class="chart-wrap" id="heatmapWrap"><div class="empty">Load data</div></div>
@@ -86,33 +86,121 @@
         <div class="card">
           <div class="card-header">
             <span class="card-title">Return Distribution</span>
-            <div class="method-tabs" id="histTabs"></div>
+            <span class="card-subtitle">
+              <select id="histAssetSelect" class="inline-select" onchange="renderHistogram()">
+                <option>-</option>
+              </select>
+            </span>
           </div>
-
           <div class="card-body">
-            <div class="chart-wrap" id="histWrap">
-              <div class="empty">Load data</div>
-            </div>
+            <div class="chart-wrap" id="histWrap"><div class="empty">Load data</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Cumulative Performance</span>
+          <span class="card-subtitle">Growth of $1</span>
+        </div>
+        <div class="card-body">
+          <div class="chart-wrap" id="cumulWrap"><div class="empty">Load data</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- === PANEL 2 - RISK ESTIMATION === -->
+    <div class="panel" id="panel-risk">
+      <div class="section-title">Risk Estimation Studio</div>
+      <p class="section-desc">Compare three covariance estimators and observe how they reshape the dependency structure.</p>
+
+      <div class="controls-inline">
+        <span class="control-label">EWMA λ:</span>
+        <input type="range" id="ewmaLambda" min="0.88" max="0.99" step="0.01" value="0.94" oninput="updateEwmaLabel();renderRisk()">
+        <span id="ewmaLambdaLabel" class="control-value">0.94</span>
+        <label class="toggle-label" style="margin-left:16px">
+          <input type="checkbox" id="diffToggle" onchange="renderRisk()"> Show difference vs. Sample
+        </label>
+      </div>
+
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-header"><span class="card-title">Sample Covariance</span></div>
+          <div class="card-body"><div class="chart-wrap" id="covSampleWrap"><div class="empty">Load data</div></div></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Ledoit-Wolf Shrinkage</span><span class="card-subtitle" id="lwAlpha">-</span></div>
+          <div class="card-body"><div class="chart-wrap" id="covLWWrap"><div class="empty">Load data</div></div></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">EWMA</span><span class="card-subtitle" id="ewmaInfo">-</span></div>
+          <div class="card-body"><div class="chart-wrap" id="covEWMAWrap"><div class="empty">Load data</div></div></div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header"><span class="card-title">Eigenvalue Spectrum</span><span class="card-subtitle">Sorted eigenvalues per estimator</span></div>
+          <div class="card-body"><div class="chart-wrap" id="eigenWrap"><div class="empty">Load data</div></div></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Condition Numbers</span></div>
+          <div class="card-body">
+            <div id="condTableWrap"><div class="empty">Load data</div></div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- PANEL 2 — RISK ESTIMATION -->
-    <div class="panel" id="panel-risk">
-      <div class="section-title">Risk Estimation Studio</div>
-      <p class="section-desc">Compare three covariance estimators: Sample, Ledoit-Wolf (shrinkage), and EWMA.</p>
-      <div class="card"><div class="card-body"><div class="empty">Load data to view risk estimation</div></div></div>
-    </div>
-
-    <!-- PANEL 3 — PORTFOLIO BUILDER -->
+    <!-- === PANEL 3 - PORTFOLIO BUILDER === -->
     <div class="panel" id="panel-portfolio">
       <div class="section-title">Portfolio Builder</div>
-      <p class="section-desc">Construct optimal portfolios using four methods.</p>
-      <div class="card"><div class="card-body"><div class="empty">Load data to build portfolios</div></div></div>
+      <p class="section-desc">Construct optimal portfolios on the efficient frontier. Compare allocation methods.</p>
+
+      <div class="controls-inline">
+        <span class="control-label">Covariance:</span>
+        <select id="pfCovSelect" class="inline-select" onchange="renderPortfolio()">
+          <option value="sample">Sample</option>
+          <option value="lw">Ledoit-Wolf</option>
+          <option value="ewma">EWMA</option>
+        </select>
+        <span class="control-label" style="margin-left:12px">Risk-free rate (%):</span>
+        <input type="number" id="rfRate" class="inline-input" value="4.0" step="0.5" min="0" max="15" onchange="renderPortfolio()">
+        <span class="control-label" style="margin-left:12px">Target return (%):</span>
+        <input type="range" id="targetRetSlider" min="5" max="50" step="0.5" value="15" oninput="updateTargetLabel();renderPortfolio()">
+        <span id="targetRetLabel" class="control-value">15.0%</span>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Efficient Frontier</span>
+            <span class="card-subtitle">with special portfolios</span>
+          </div>
+          <div class="card-body">
+            <div class="chart-wrap" id="frontierWrap"><div class="empty">Load data</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Portfolio Weights - All Strategies</span>
+            <span class="card-subtitle">Stacked by asset</span>
+          </div>
+          <div class="card-body">
+            <div class="chart-wrap" id="stackedWeightsWrap"><div class="empty">Load data</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><span class="card-title">Portfolio Comparison</span></div>
+        <div class="card-body" style="padding:0">
+          <div id="pfCompareWrap"><div class="empty">Load data</div></div>
+        </div>
+      </div>
     </div>
 
   </div>
+
   <script src="engine.js"></script>
 </body>
 </html>

@@ -1,388 +1,1017 @@
-const COLORS = ['#2563eb','#16a34a','#dc2626','#d97706','#7c3aed','#0891b2','#db2777','#65a30d','#ea580c','#0f766e'];
-function color(i) { return COLORS[i % COLORS.length]; }
+/* ===================================================================
+   Portfolio Allocation Engine - engine.js
+   COM-480 Data Visualization - EPFL
+   =================================================================== */
 
-let tickers = ['AAPL','MSFT','GOOGL','JPM','JNJ','SPY'];
-let csvData = null;
-let selectedHistTicker = null;
-let assetStats = [];
-let assetReturns = {};
-const RF = 0.04;
+const COLORS = [
+  '#2563eb','#16a34a','#dc2626','#d97706','#7c3aed',
+  '#0891b2','#db2777','#65a30d','#ea580c','#0f766e',
+  '#6366f1','#ca8a04','#be185d','#059669','#9333ea'
+];
+const TRADING_DAYS = 252;
+const col = i => COLORS[i % COLORS.length];
 
-function switchTab(name, el) {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-    el.classList.add('active');
-    document.getElementById('panel-' + name).classList.add('active');
+const STATE = {
+  tickers: ['AAPL','MSFT','GOOGL','JPM','JNJ','SPY','QQQ','GLD','TLT'],
+  active: null,
+  window: '3y',
+  rawPrices: null,
+  prices: null,
+  logRet: null,
+  annRet: null,
+  annVol: null,
+  sharpe: null,
+  corr: null,
+  covSample: null,
+  covLW: null,
+  covEWMA: null,
+  portfolios: {}
+};
+
+// ----- Helpers -----
+
+function setStatus(cls, txt) {
+  document.getElementById('statusDot').className = 'dot ' + cls;
+  document.getElementById('statusText').textContent = txt;
 }
 
+function switchTab(name, el) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('panel-' + name).classList.add('active');
+  if (!STATE.logRet) return;
+  requestAnimationFrame(() => {
+    const tickers = STATE.active || STATE.tickers;
+    if (name === 'risk') renderRisk();
+    if (name === 'portfolio') renderPortfolio();
+    if (name === 'explorer') renderExplorer(tickers);
+  });
+}
+
+function updateEwmaLabel() {
+  document.getElementById('ewmaLambdaLabel').textContent =
+    parseFloat(document.getElementById('ewmaLambda').value).toFixed(2);
+}
+
+// ----- Chip rendering -----
+
 function renderChips() {
-    const list = document.getElementById('chipList');
-    list.innerHTML = '';
-    tickers.forEach((t, i) => {
+  const list = document.getElementById('chipList');
+  list.innerHTML = '';
+  STATE.tickers.forEach((t, i) => {
     const c = document.createElement('span');
     c.className = 'chip';
-    c.style.borderColor = color(i);
-    c.style.color = color(i);
-    c.style.background = color(i) + '18';
+    const isActive = !STATE.active || STATE.active.includes(t);
+    if (!isActive) c.classList.add('disabled');
+    c.style.borderColor = col(i);
+    c.style.color = col(i);
+    c.style.background = col(i) + '18';
     c.textContent = t;
+    c.onclick = () => toggleChip(t);
     list.appendChild(c);
-    });
+  });
+}
+
+function toggleChip(t) {
+  if (!STATE.active) STATE.active = [...STATE.tickers];
+  if (STATE.active.includes(t)) {
+    if (STATE.active.length <= 2) return;
+    STATE.active = STATE.active.filter(x => x !== t);
+  } else {
+    STATE.active.push(t);
+  }
+  renderChips();
+  if (STATE.logRet) computeAndRender();
 }
 
 function addTicker() {
-    const inp = document.getElementById('tickerInput');
-    const v = inp.value.trim().toUpperCase().replace(/[^A-Z0-9.\-]/g, '');
-    if (!v || tickers.includes(v) || tickers.length >= 15) { inp.value = ''; return; }
-    tickers.push(v);
+  const inp = document.getElementById('tickerInput');
+  const v = inp.value.trim().toUpperCase().replace(/[^A-Z0-9.\-]/g, '');
+  if (!v || STATE.tickers.includes(v) || STATE.tickers.length >= 15) { inp.value = ''; return; }
+  if (STATE.rawPrices && !(v in STATE.rawPrices[0])) {
     inp.value = '';
-    renderChips();
+    setStatus('error', v + ' not in dataset');
+    return;
+  }
+  STATE.tickers.push(v);
+  if (STATE.active) STATE.active.push(v);
+  inp.value = '';
+  renderChips();
+  if (STATE.logRet) computeAndRender();
 }
 
 function setWin(w, el) {
-    document.querySelectorAll('.win-btn').forEach(b => b.classList.remove('active'));
-    el.classList.add('active');
+  STATE.window = w;
+  document.querySelectorAll('.win-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  if (STATE.rawPrices) computeAndRender();
 }
 
-// ── Math helpers ──
-function logReturns(prices) {
-    const rets = [];
-    for (let i = 1; i < prices.length; i++) rets.push(Math.log(prices[i] / prices[i - 1]));
-    return rets;
-}
-function mean(arr) { return arr.reduce((a, b) => a + b, 0) / arr.length; }
-function stdev(arr) {
-    const m = mean(arr);
-    return Math.sqrt(arr.reduce((s, x) => s + (x - m) ** 2, 0) / (arr.length - 1));
-}
-function annRet(rets) { return mean(rets) * 252; }
-function annVol(rets) { return stdev(rets) * Math.sqrt(252); }
-function sharpe(rets) {
-    const v = annVol(rets);
-    return v === 0 ? 0 : (annRet(rets) - RF) / v;
-}
-function correlation(a, b) {
-    const ma = mean(a), mb = mean(b);
-    let num = 0, da = 0, db = 0;
-    for (let i = 0; i < a.length; i++) {
-    const dx = a[i] - ma, dy = b[i] - mb;
-    num += dx * dy; da += dx * dx; db += dy * dy;
-    }
-    return da === 0 || db === 0 ? 0 : num / Math.sqrt(da * db);
-}
+// ----- Data loading -----
 
-// ── Load and render ──
 async function loadData() {
-    document.getElementById('loadBtn').disabled = true;
-    document.getElementById('statusDot').className = 'dot loading';
-    document.getElementById('statusText').textContent = 'Loading…';
+  const btn = document.getElementById('loadBtn');
+  btn.disabled = true;
+  setStatus('loading', 'Loading…');
 
-    try {
-    csvData = await d3.csv('data/prices.csv');
-    tickers = Object.keys(csvData[0]).filter(c => c !== 'Date');
-    renderChips();
-
-    // Compute returns
-    assetReturns = {};
-    tickers.forEach(t => {
-        assetReturns[t] = logReturns(csvData.map(r => +r[t]));
+  try {
+    const raw = await d3.csv('data/prices.csv', d => {
+      const row = { Date: d3.timeParse('%Y-%m-%d')(d.Date) };
+      STATE.tickers.forEach(t => { if (d[t] !== undefined) row[t] = +d[t]; });
+      return row;
     });
-
-    // Compute stats
-    assetStats = tickers.map((t, i) => ({
-        ticker: t, idx: i,
-        ret: annRet(assetReturns[t]),
-        vol: annVol(assetReturns[t]),
-        sharpe: sharpe(assetReturns[t])
-    }));
-
-    // KPIs
-    document.getElementById('kpi-n').textContent = tickers.length;
-    document.getElementById('kpi-obs').textContent = csvData.length;
-    document.getElementById('kpi-range').textContent =
-        csvData[0].Date.slice(0, 7) + ' → ' + csvData[csvData.length - 1].Date.slice(0, 7);
-    const best = assetStats.reduce((a, b) => a.sharpe > b.sharpe ? a : b);
-    document.getElementById('kpi-sharpe').textContent = best.sharpe.toFixed(2);
-    document.getElementById('kpi-best').textContent = best.ticker;
-    document.getElementById('corrLabel').textContent = 'Full history';
-
-    drawScatter(assetStats);
-    renderStatsTable(assetStats);
-    drawHeatmap(tickers);
-    renderHistTabs();
-    drawHistogram(assetReturns, tickers[0]);
-
-    document.getElementById('statusDot').className = 'dot ready';
-    document.getElementById('statusText').textContent = tickers.length + ' assets loaded';
-
-    } catch (e) {
-    document.getElementById('statusDot').className = 'dot error';
-    document.getElementById('statusText').textContent = 'Error';
+    STATE.rawPrices = raw;
+    STATE.active = [...STATE.tickers];
+    computeAndRender();
+    setStatus('ready', STATE.prices.length + ' days loaded');
+  } catch (e) {
     console.error(e);
-    }
-    document.getElementById('loadBtn').disabled = false;
+    setStatus('error', 'Failed to load data');
+  }
+  btn.disabled = false;
 }
 
-// ── Stats table ──
-function renderStatsTable(stats) {
-    const rows = stats.map(s => {
-    const retCls = s.ret > 0 ? 'td-green' : 'td-red';
-    const shCls = s.sharpe > 0 ? 'td-green' : 'td-red';
-    return '<tr>' +
-        '<td><span style="color:' + color(s.idx) + ';font-weight:600">' + s.ticker + '</span></td>' +
-        '<td class="' + retCls + '">' + (s.ret * 100).toFixed(2) + '%</td>' +
-        '<td>' + (s.vol * 100).toFixed(2) + '%</td>' +
-        '<td class="' + shCls + '">' + s.sharpe.toFixed(2) + '</td>' +
-        '</tr>';
-    }).join('');
-    document.getElementById('statsTableWrap').innerHTML =
-    '<table class="data-table">' +
-    '<thead><tr><th>Asset</th><th>Ann. Return</th><th>Ann. Vol</th><th>Sharpe</th></tr></thead>' +
-    '<tbody>' + rows + '</tbody></table>';
+function computeAndRender() {
+  const tickers = STATE.active || STATE.tickers;
+  filterPrices(tickers);
+  computeStats(tickers);
+  computeCovariances(tickers);
+  computePortfolios(tickers);
+  renderExplorer(tickers);
+  renderRisk();
+  renderPortfolio();
 }
 
-// ── Scatter: Return vs Volatility ──
-function drawScatter(stats) {
-    const wrap = d3.select('#scatterWrap');
-    wrap.html('');
+function filterPrices(tickers) {
+  let data = STATE.rawPrices.filter(r => tickers.every(t => r[t] != null && !isNaN(r[t])));
+  const end = data[data.length - 1].Date;
+  const winMap = { '1y': 1, '3y': 3, '5y': 5, 'max': 100 };
+  const years = winMap[STATE.window] || 3;
+  const start = new Date(end);
+  start.setFullYear(start.getFullYear() - years);
+  data = data.filter(r => r.Date >= start);
+  STATE.prices = data;
 
-    const margin = { top: 16, right: 20, bottom: 42, left: 54 };
-    const width = 520, height = 300;
-    const cw = width - margin.left - margin.right;
-    const ch = height - margin.top - margin.bottom;
-
-    const svg = wrap.append('svg').attr('viewBox', '0 0 ' + width + ' ' + height);
-    const g = svg.append('g').attr('transform', 'translate(' + margin.left + ',' + margin.top + ')');
-
-    const xExt = d3.extent(stats, d => d.vol);
-    const yExt = d3.extent(stats, d => d.ret);
-    const x = d3.scaleLinear().domain([xExt[0] * 0.85, xExt[1] * 1.15]).range([0, cw]);
-    const y = d3.scaleLinear().domain([Math.min(yExt[0], 0) - 0.02, yExt[1] * 1.15]).range([ch, 0]);
-
-    // Grid
-    y.ticks(5).forEach(t => {
-    g.append('line').attr('x1', 0).attr('x2', cw)
-        .attr('y1', y(t)).attr('y2', y(t)).attr('stroke', '#eee');
-    });
-
-    // Zero line
-    if (y.domain()[0] < 0) {
-    g.append('line').attr('x1', 0).attr('x2', cw)
-        .attr('y1', y(0)).attr('y2', y(0))
-        .attr('stroke', '#ccc').attr('stroke-dasharray', '4,3');
-    }
-
-    // Axes
-    g.append('g').attr('transform', 'translate(0,' + ch + ')')
-    .call(d3.axisBottom(x).ticks(5).tickFormat(d => (d * 100).toFixed(1) + '%'))
-    .selectAll('text').style('font-size', '9px');
-    g.append('g').call(d3.axisLeft(y).ticks(5).tickFormat(d => (d * 100).toFixed(1) + '%'))
-    .selectAll('text').style('font-size', '9px');
-
-    // Labels
-    svg.append('text').attr('x', margin.left + cw / 2).attr('y', height - 4)
-    .attr('text-anchor', 'middle').style('font-size', '10px').style('fill', '#999')
-    .text('Annualised Volatility');
-    svg.append('text').attr('transform', 'rotate(-90)')
-    .attr('x', -(margin.top + ch / 2)).attr('y', 14)
-    .attr('text-anchor', 'middle').style('font-size', '10px').style('fill', '#999')
-    .text('Annualised Return');
-
-    // Bubbles
-    g.selectAll('circle').data(stats).enter().append('circle')
-    .attr('cx', d => x(d.vol)).attr('cy', d => y(d.ret))
-    .attr('r', d => Math.max(5, Math.min(13, 5 + d.sharpe * 3)))
-    .attr('fill', d => color(d.idx)).attr('opacity', 0.85);
-
-    // Ticker labels
-    g.selectAll('.lbl').data(stats).enter().append('text')
-    .attr('x', d => x(d.vol))
-    .attr('y', d => y(d.ret) - Math.max(5, Math.min(13, 5 + d.sharpe * 3)) - 4)
-    .attr('text-anchor', 'middle').style('font-size', '10px').style('font-weight', '600')
-    .style('fill', d => color(d.idx)).text(d => d.ticker);
+  const logRet = [];
+  for (let i = 1; i < data.length; i++) {
+    const row = { Date: data[i].Date };
+    tickers.forEach(t => { row[t] = Math.log(data[i][t] / data[i - 1][t]); });
+    logRet.push(row);
+  }
+  STATE.logRet = logRet;
 }
 
-// ── Correlation heatmap (simple) ──
-function drawHeatmap(tickers) {
-    const wrap = d3.select('#heatmapWrap');
-    wrap.html('');
+// ----- Statistics -----
 
-    const n = tickers.length;
-    const cell = Math.min(44, Math.floor(380 / n));
-    const margin = 52;
-    const W = margin + n * cell + 16;
-    const H = margin + n * cell + 8;
-
-    const svg = wrap.append('svg').attr('viewBox', '0 0 ' + W + ' ' + H);
-
-    // Compute correlation matrix
-    for (let i = 0; i < n; i++) {
-    for (let j = 0; j < n; j++) {
-        const v = correlation(assetReturns[tickers[i]], assetReturns[tickers[j]]);
-        // Color: blue (-1) -> white (0) -> red (+1)
-        const r = v > 0 ? Math.round(220 + 35 * v) : Math.round(220 - 183 * Math.abs(v));
-        const gr = v > 0 ? Math.round(220 - 180 * v) : Math.round(220 - 130 * Math.abs(v));
-        const b = v > 0 ? Math.round(220 - 190 * v) : Math.round(220 + 35 * Math.abs(v));
-        const col = 'rgb(' + r + ',' + gr + ',' + b + ')';
-
-        svg.append('rect')
-        .attr('x', margin + j * cell).attr('y', margin + i * cell)
-        .attr('width', cell).attr('height', cell)
-        .attr('fill', col);
-
-        if (cell >= 30) {
-        svg.append('text')
-            .attr('x', margin + j * cell + cell / 2)
-            .attr('y', margin + i * cell + cell / 2 + 4)
-            .attr('text-anchor', 'middle')
-            .style('font-size', '9px').style('font-weight', '500')
-            .style('fill', Math.abs(v) > 0.6 ? '#fff' : '#333')
-            .text(v.toFixed(2));
-        }
-    }
-    // Row/col labels
-    svg.append('text').attr('x', margin + i * cell + cell / 2).attr('y', margin - 6)
-        .attr('text-anchor', 'middle').style('font-size', '9px').style('font-weight', '600').style('fill', '#444')
-        .text(tickers[i]);
-    svg.append('text').attr('x', margin - 4).attr('y', margin + i * cell + cell / 2 + 3)
-        .attr('text-anchor', 'end').style('font-size', '9px').style('font-weight', '600').style('fill', '#444')
-        .text(tickers[i]);
-    }
-}
-
-// ── Return Distribution (Histogram) ──
-function drawHistogram(assetReturns, ticker) {
-  const wrap = d3.select('#histWrap');
-  wrap.html('');
-
-  const rets = assetReturns[ticker];
-
-  const margin = { top: 16, right: 16, bottom: 36, left: 44 };
-  const width = 520, height = 300;
-  const cw = width - margin.left - margin.right;
-  const ch = height - margin.top - margin.bottom;
-
-  const svg = wrap.append('svg')
-    .attr('viewBox', `0 0 ${width} ${height}`);
-
-  const g = svg.append('g')
-    .attr('transform', `translate(${margin.left},${margin.top})`);
-
-  // X scale
-  const xScale = d3.scaleLinear()
-    .domain(d3.extent(rets))
-    .nice()
-    .range([0, cw]);
-
-  // bins
-  const bins = d3.bin()
-    .domain(xScale.domain())
-    .thresholds(35)(rets);
-
-  // Y scale
-  const yScale = d3.scaleLinear()
-    .domain([0, d3.max(bins, b => b.length)])
-    .nice()
-    .range([ch, 0]);
-
-  // grid
-  g.selectAll('.grid')
-    .data(yScale.ticks(4))
-    .enter()
-    .append('line')
-    .attr('x1', 0)
-    .attr('x2', cw)
-    .attr('y1', d => yScale(d))
-    .attr('y2', d => yScale(d))
-    .attr('stroke', '#eee');
-
-  // bars
-  g.selectAll('rect')
-    .data(bins)
-    .enter()
-    .append('rect')
-    .attr('x', d => xScale(d.x0) + 0.5)
-    .attr('y', d => yScale(d.length))
-    .attr('width', d => Math.max(0, xScale(d.x1) - xScale(d.x0) - 1))
-    .attr('height', d => ch - yScale(d.length))
-    .attr('fill', color(tickers.indexOf(ticker)))
-    .attr('opacity', 0.8);
-
-  // axes
-  g.append('g')
-    .attr('transform', `translate(0,${ch})`)
-    .call(d3.axisBottom(xScale).ticks(5).tickFormat(d => (d * 100).toFixed(1) + '%'));
-
-  g.append('g')
-    .call(d3.axisLeft(yScale).ticks(4));
-
-  // normal curve
-  const mu = d3.mean(rets);
-  const sigma = d3.deviation(rets);
-
-  const binWidth = (xScale.domain()[1] - xScale.domain()[0]) / 35;
-
-  const xVals = d3.range(100).map(i =>
-    xScale.domain()[0] +
-    (i / 99) * (xScale.domain()[1] - xScale.domain()[0])
-  );
-
-  const normLine = d3.line()
-    .x(d => xScale(d))
-    .y(d => {
-      const density =
-        (1 / (sigma * Math.sqrt(2 * Math.PI))) *
-        Math.exp(-0.5 * ((d - mu) / sigma) ** 2);
-
-      return yScale(density * rets.length * binWidth);
-    });
-
-  g.append('path')
-    .datum(xVals)
-    .attr('d', normLine)
-    .attr('fill', 'none')
-    .attr('stroke', '#111')
-    .attr('stroke-width', 1.5)
-    .attr('stroke-dasharray', '4,3');
-
-  // mean line
-  g.append('line')
-    .attr('x1', xScale(mu))
-    .attr('x2', xScale(mu))
-    .attr('y1', 0)
-    .attr('y2', ch)
-    .attr('stroke', '#555')
-    .attr('stroke-dasharray', '3,3');
-
-  g.append('text')
-    .attr('x', xScale(mu) + 4)
-    .attr('y', 12)
-    .style('font-size', '9px')
-    .style('fill', '#555')
-    .text('μ');
-}
-
-function renderHistTabs() {
-  const wrap = document.getElementById('histTabs');
-  wrap.innerHTML = '';
-
-  tickers.forEach((t, i) => {
-    const btn = document.createElement('button');
-    btn.className = 'meth-btn' + (i === 0 ? ' active' : '');
-    btn.textContent = t;
-
-    btn.onclick = () => {
-      document.querySelectorAll('#histTabs .meth-btn')
-        .forEach(b => b.classList.remove('active'));
-
-      btn.classList.add('active');
-      selectedHistTicker = t;
-      drawHistogram(assetReturns, t);
-    };
-
-    wrap.appendChild(btn);
+function computeStats(tickers) {
+  const n = STATE.logRet.length;
+  const means = {}, stds = {};
+  tickers.forEach(t => {
+    const vals = STATE.logRet.map(r => r[t]);
+    const mu = d3.mean(vals);
+    const sigma = d3.deviation(vals);
+    means[t] = mu;
+    stds[t] = sigma;
+  });
+  STATE.annRet = {};
+  STATE.annVol = {};
+  STATE.sharpe = {};
+  tickers.forEach(t => {
+    STATE.annRet[t] = means[t] * TRADING_DAYS;
+    STATE.annVol[t] = stds[t] * Math.sqrt(TRADING_DAYS);
+    STATE.sharpe[t] = STATE.annRet[t] / STATE.annVol[t];
   });
 
-  selectedHistTicker = tickers[0];
+  const corrMat = [];
+  tickers.forEach((t1, i) => {
+    corrMat[i] = [];
+    const v1 = STATE.logRet.map(r => r[t1]);
+    tickers.forEach((t2, j) => {
+      if (i === j) { corrMat[i][j] = 1; return; }
+      if (j < i) { corrMat[i][j] = corrMat[j][i]; return; }
+      const v2 = STATE.logRet.map(r => r[t2]);
+      const mu1 = d3.mean(v1), mu2 = d3.mean(v2);
+      let cov = 0, s1 = 0, s2 = 0;
+      for (let k = 0; k < v1.length; k++) {
+        const d1 = v1[k] - mu1, d2 = v2[k] - mu2;
+        cov += d1 * d2; s1 += d1 * d1; s2 += d2 * d2;
+      }
+      corrMat[i][j] = cov / Math.sqrt(s1 * s2);
+    });
+  });
+  STATE.corr = corrMat;
 }
 
+// ----- Covariance estimators -----
+
+function sampleCov(tickers) {
+  const n = STATE.logRet.length;
+  const p = tickers.length;
+  const means = tickers.map(t => d3.mean(STATE.logRet.map(r => r[t])));
+  const mat = Array.from({ length: p }, () => new Float64Array(p));
+  for (let i = 0; i < p; i++) {
+    const vi = STATE.logRet.map(r => r[tickers[i]]);
+    for (let j = i; j < p; j++) {
+      const vj = STATE.logRet.map(r => r[tickers[j]]);
+      let s = 0;
+      for (let k = 0; k < n; k++) s += (vi[k] - means[i]) * (vj[k] - means[j]);
+      mat[i][j] = mat[j][i] = s / (n - 1);
+    }
+  }
+  return mat;
+}
+
+function ledoitWolf(tickers) {
+  const S = sampleCov(tickers);
+  const p = tickers.length;
+  const n = STATE.logRet.length;
+  const trS = d3.sum(d3.range(p), i => S[i][i]);
+  const mu = trS / p;
+  const target = Array.from({ length: p }, (_, i) =>
+    Float64Array.from({ length: p }, (_, j) => i === j ? mu : 0));
+
+  const X = tickers.map(t => STATE.logRet.map(r => r[t]));
+  const means = tickers.map(t => d3.mean(STATE.logRet.map(r => r[t])));
+  let delta2 = 0;
+  for (let i = 0; i < p; i++)
+    for (let j = 0; j < p; j++)
+      delta2 += (S[i][j] - target[i][j]) ** 2;
+
+  let beta2 = 0;
+  for (let k = 0; k < n; k++) {
+    let bk = 0;
+    for (let i = 0; i < p; i++)
+      for (let j = 0; j < p; j++)
+        bk += ((X[i][k] - means[i]) * (X[j][k] - means[j]) - S[i][j]) ** 2;
+    beta2 += bk;
+  }
+  beta2 /= n * n;
+  const alpha = Math.min(beta2 / delta2, 1);
+
+  const res = Array.from({ length: p }, () => new Float64Array(p));
+  for (let i = 0; i < p; i++)
+    for (let j = 0; j < p; j++)
+      res[i][j] = alpha * target[i][j] + (1 - alpha) * S[i][j];
+  STATE._lwAlpha = alpha;
+  return res;
+}
+
+function ewmaCov(tickers) {
+  const lambda = parseFloat(document.getElementById('ewmaLambda').value) || 0.94;
+  const p = tickers.length;
+  const n = STATE.logRet.length;
+  const means = tickers.map(t => d3.mean(STATE.logRet.map(r => r[t])));
+  const mat = Array.from({ length: p }, () => new Float64Array(p));
+
+  for (let i = 0; i < p; i++)
+    for (let j = i; j < p; j++) {
+      let s = 0, w = 0;
+      for (let k = n - 1; k >= 0; k--) {
+        const wk = Math.pow(lambda, n - 1 - k);
+        s += wk * (STATE.logRet[k][tickers[i]] - means[i]) * (STATE.logRet[k][tickers[j]] - means[j]);
+        w += wk;
+      }
+      mat[i][j] = mat[j][i] = s / w;
+    }
+  return mat;
+}
+
+function computeCovariances(tickers) {
+  STATE.covSample = sampleCov(tickers);
+  STATE.covLW = ledoitWolf(tickers);
+  STATE.covEWMA = ewmaCov(tickers);
+}
+
+// ----- Matrix utilities -----
+
+function matInv(A) {
+  const n = A.length;
+  const aug = A.map((row, i) => {
+    const r = new Float64Array(2 * n);
+    for (let j = 0; j < n; j++) r[j] = row[j];
+    r[n + i] = 1;
+    return r;
+  });
+  for (let c = 0; c < n; c++) {
+    let maxR = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(aug[r][c]) > Math.abs(aug[maxR][c])) maxR = r;
+    [aug[c], aug[maxR]] = [aug[maxR], aug[c]];
+    const piv = aug[c][c];
+    if (Math.abs(piv) < 1e-14) return null;
+    for (let j = 0; j < 2 * n; j++) aug[c][j] /= piv;
+    for (let r = 0; r < n; r++) {
+      if (r === c) continue;
+      const f = aug[r][c];
+      for (let j = 0; j < 2 * n; j++) aug[r][j] -= f * aug[c][j];
+    }
+  }
+  return aug.map(r => Array.from(r.slice(n)));
+}
+
+function matVecMul(A, v) {
+  return A.map(row => d3.sum(row.map((a, j) => a * v[j])));
+}
+
+function dot(a, b) { return d3.sum(a.map((v, i) => v * b[i])); }
+
+function eigenvalues(A) {
+  const n = A.length;
+  let M = A.map(r => [...r]);
+  const eigvals = [];
+  for (let iter = 0; iter < 200 * n; iter++) {
+    let maxOff = 0, p = 0, q = 1;
+    for (let i = 0; i < n; i++)
+      for (let j = i + 1; j < n; j++)
+        if (Math.abs(M[i][j]) > maxOff) { maxOff = Math.abs(M[i][j]); p = i; q = j; }
+    if (maxOff < 1e-12) break;
+    const theta = (M[q][q] - M[p][p]) / (2 * M[p][q]);
+    const t = Math.sign(theta) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+    const c = 1 / Math.sqrt(t * t + 1), s = t * c;
+    const tau = s / (1 + c);
+    const app = M[p][p], aqq = M[q][q], apq = M[p][q];
+    M[p][p] -= t * apq;
+    M[q][q] += t * apq;
+    M[p][q] = M[q][p] = 0;
+    for (let r = 0; r < n; r++) {
+      if (r === p || r === q) continue;
+      const rp = M[r][p], rq = M[r][q];
+      M[r][p] = M[p][r] = rp - s * (rq + tau * rp);
+      M[r][q] = M[q][r] = rq + s * (rp - tau * rq);
+    }
+  }
+  for (let i = 0; i < n; i++) eigvals.push(M[i][i]);
+  return eigvals.sort((a, b) => b - a);
+}
+
+// ----- Portfolio optimisation -----
+
+function minVariancePortfolio(cov) {
+  const inv = matInv(cov);
+  if (!inv) return null;
+  const ones = new Array(cov.length).fill(1);
+  const w = matVecMul(inv, ones);
+  const s = d3.sum(w);
+  return w.map(v => v / s);
+}
+
+function tangencyPortfolio(cov, mu, rf) {
+  const inv = matInv(cov);
+  if (!inv) return null;
+  const excess = mu.map(m => m - rf);
+  const w = matVecMul(inv, excess);
+  const s = d3.sum(w);
+  if (Math.abs(s) < 1e-14) return null;
+  return w.map(v => v / s);
+}
+
+function riskParityPortfolio(cov) {
+  const n = cov.length;
+  let w = new Array(n).fill(1 / n);
+  for (let iter = 0; iter < 500; iter++) {
+    const sigma_w = matVecMul(cov, w);
+    const portVol = Math.sqrt(dot(w, sigma_w));
+    const mrc = sigma_w.map(s => s / portVol);
+    const rc = w.map((wi, i) => wi * mrc[i]);
+    const target = portVol / n;
+    const newW = w.map((wi, i) => wi * target / (rc[i] || 1e-10));
+    const s = d3.sum(newW);
+    w = newW.map(v => v / s);
+  }
+  return w;
+}
+
+function equalWeightPortfolio(n) {
+  return new Array(n).fill(1 / n);
+}
+
+function meanVariancePortfolio(cov, mu, targetRet) {
+  const n = cov.length;
+  const inv = matInv(cov);
+  if (!inv) return null;
+  const ones = Array(n).fill(1);
+  const a = dot(ones, matVecMul(inv, ones));
+  const b = dot(ones, matVecMul(inv, mu));
+  const c = dot(mu, matVecMul(inv, mu));
+  const det = a * c - b * b;
+  if (Math.abs(det) < 1e-18) return null;
+  const l1 = (c - b * targetRet) / det;
+  const l2 = (a * targetRet - b) / det;
+  const w = [];
+  for (let j = 0; j < n; j++) {
+    let wj = 0;
+    for (let k = 0; k < n; k++) wj += inv[j][k] * (l1 + l2 * mu[k]);
+    w.push(wj);
+  }
+  return w;
+}
+
+function updateTargetLabel() {
+  document.getElementById('targetRetLabel').textContent =
+    parseFloat(document.getElementById('targetRetSlider').value).toFixed(1) + '%';
+}
+
+function portfolioStats(w, mu, cov) {
+  const ret = dot(w, mu);
+  const vol = Math.sqrt(dot(w, matVecMul(cov, w)));
+  return { ret, vol, sharpe: ret / vol };
+}
+
+function efficientFrontier(cov, mu, nPoints) {
+  const n = cov.length;
+  const inv = matInv(cov);
+  if (!inv) return [];
+  const ones = Array(n).fill(1);
+  const a = dot(ones, matVecMul(inv, ones));
+  const b = dot(ones, matVecMul(inv, mu));
+  const c = dot(mu, matVecMul(inv, mu));
+  const det = a * c - b * b;
+  if (Math.abs(det) < 1e-18) return [];
+
+  const muMin = b / a;
+  const muMax = d3.max(mu) * 1.2;
+  const pts = [];
+  for (let i = 0; i <= nPoints; i++) {
+    const target = muMin + (muMax - muMin) * i / nPoints;
+    const l1 = (c - b * target) / det;
+    const l2 = (a * target - b) / det;
+    const w = [];
+    for (let j = 0; j < n; j++) {
+      let wj = 0;
+      for (let k = 0; k < n; k++) wj += inv[j][k] * (l1 + l2 * mu[k]);
+      w.push(wj);
+    }
+    const vol = Math.sqrt(dot(w, matVecMul(cov, w)));
+    pts.push({ ret: target, vol, w });
+  }
+  return pts;
+}
+
+function computePortfolios(tickers) {
+  const getCov = () => {
+    const sel = document.getElementById('pfCovSelect').value;
+    return sel === 'lw' ? STATE.covLW : sel === 'ewma' ? STATE.covEWMA : STATE.covSample;
+  };
+  const daily = getCov();
+  const p = tickers.length;
+  const cov = daily.map(r => Array.from(r).map(v => v * TRADING_DAYS));
+  const mu = tickers.map(t => STATE.annRet[t]);
+  const rf = (parseFloat(document.getElementById('rfRate').value) || 0) / 100;
+
+  const targetRet = (parseFloat(document.getElementById('targetRetSlider').value) || 15) / 100;
+
+  STATE.portfolios.minvar = minVariancePortfolio(cov);
+  STATE.portfolios.tangency = tangencyPortfolio(cov, mu, rf);
+  STATE.portfolios.riskparity = riskParityPortfolio(cov);
+  STATE.portfolios.meanvar = meanVariancePortfolio(cov, mu, targetRet);
+  STATE.portfolios.frontier = efficientFrontier(cov, mu, 80);
+  STATE.portfolios.mu = mu;
+  STATE.portfolios.cov = cov;
+  STATE.portfolios.rf = rf;
+}
+
+// ----- Tooltip -----
+
+let tooltipEl;
+function ensureTooltip() {
+  if (!tooltipEl) {
+    tooltipEl = document.createElement('div');
+    tooltipEl.className = 'tooltip';
+    document.body.appendChild(tooltipEl);
+  }
+  return tooltipEl;
+}
+
+function showTooltip(html, event) {
+  const tip = ensureTooltip();
+  tip.innerHTML = html;
+  tip.classList.add('visible');
+  tip.style.left = (event.pageX + 12) + 'px';
+  tip.style.top = (event.pageY - 10) + 'px';
+}
+
+function hideTooltip() {
+  ensureTooltip().classList.remove('visible');
+}
+
+// ===============================================
+//  RENDERERS - Tab 1: Asset Explorer
+// ===============================================
+
+function renderExplorer(tickers) {
+  renderKPIs(tickers);
+  renderScatter(tickers);
+  renderStatsTable(tickers);
+  renderHeatmap(tickers);
+  populateHistSelect(tickers);
+  renderHistogram();
+  renderCumulative(tickers);
+}
+
+function renderKPIs(tickers) {
+  const best = tickers.reduce((a, b) => STATE.sharpe[a] > STATE.sharpe[b] ? a : b);
+  document.getElementById('kpi-n').textContent = tickers.length;
+  document.getElementById('kpi-obs').textContent = STATE.logRet.length.toLocaleString();
+  const d0 = STATE.prices[0].Date, d1 = STATE.prices[STATE.prices.length - 1].Date;
+  document.getElementById('kpi-range').textContent =
+    d3.timeFormat('%b %Y')(d0) + ' - ' + d3.timeFormat('%b %Y')(d1);
+  document.getElementById('kpi-sharpe').textContent = STATE.sharpe[best].toFixed(2);
+  document.getElementById('kpi-best').textContent = best;
+}
+
+function renderScatter(tickers) {
+  const wrap = document.getElementById('scatterWrap');
+  wrap.innerHTML = '';
+  const W = wrap.clientWidth, H = 320;
+  const m = { t: 20, r: 20, b: 45, l: 55 };
+  const svg = d3.select(wrap).append('svg').attr('class', 'chart')
+    .attr('viewBox', `0 0 ${W} ${H}`);
+  const xExt = d3.extent(tickers, t => STATE.annVol[t] * 100);
+  const yExt = d3.extent(tickers, t => STATE.annRet[t] * 100);
+  const xPad = (xExt[1] - xExt[0]) * .15 || 2;
+  const yPad = (yExt[1] - yExt[0]) * .15 || 2;
+  const x = d3.scaleLinear().domain([xExt[0] - xPad, xExt[1] + xPad]).range([m.l, W - m.r]);
+  const y = d3.scaleLinear().domain([yExt[0] - yPad, yExt[1] + yPad]).range([H - m.b, m.t]);
+  const sMin = d3.min(tickers, t => STATE.sharpe[t]);
+  const rScale = d3.scaleSqrt().domain([sMin, d3.max(tickers, t => STATE.sharpe[t])]).range([5, 22]);
+
+  svg.append('g').attr('transform', `translate(0,${H - m.b})`).call(d3.axisBottom(x).ticks(6).tickFormat(d => d + '%'))
+    .call(g => g.select('.domain').remove())
+    .call(g => g.selectAll('.tick line').attr('stroke', '#ddd'));
+  svg.append('g').attr('transform', `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(6).tickFormat(d => d + '%'))
+    .call(g => g.select('.domain').remove())
+    .call(g => g.selectAll('.tick line').attr('stroke', '#ddd'));
+  svg.append('text').attr('x', W / 2).attr('y', H - 4).attr('text-anchor', 'middle')
+    .attr('font-size', 11).attr('fill', '#888').text('Annualised Volatility');
+  svg.append('text').attr('transform', 'rotate(-90)').attr('x', -H / 2).attr('y', 14)
+    .attr('text-anchor', 'middle').attr('font-size', 11).attr('fill', '#888').text('Annualised Return');
+
+  tickers.forEach((t, i) => {
+    const cx = x(STATE.annVol[t] * 100), cy = y(STATE.annRet[t] * 100);
+    svg.append('circle').attr('cx', cx).attr('cy', cy)
+      .attr('r', 0).attr('fill', col(STATE.tickers.indexOf(t))).attr('fill-opacity', .7)
+      .attr('stroke', 'white').attr('stroke-width', 1.5)
+      .on('mousemove', e => showTooltip(
+        `<b>${t}</b><br>Return: ${(STATE.annRet[t]*100).toFixed(1)}%<br>Vol: ${(STATE.annVol[t]*100).toFixed(1)}%<br>Sharpe: ${STATE.sharpe[t].toFixed(2)}`, e))
+      .on('mouseleave', hideTooltip)
+      .transition().duration(500).delay(i * 40).attr('r', rScale(STATE.sharpe[t]));
+    svg.append('text').attr('x', cx).attr('y', cy - rScale(STATE.sharpe[t]) - 4)
+      .attr('text-anchor', 'middle').attr('font-size', 10).attr('fill', '#444').attr('font-weight', 600)
+      .attr('opacity', 0).text(t)
+      .transition().duration(400).delay(i * 40 + 200).attr('opacity', 1);
+  });
+}
+
+function renderStatsTable(tickers) {
+  const wrap = document.getElementById('statsTableWrap');
+  let html = '<table class="stats-table"><thead><tr><th>Ticker</th><th class="num">Return</th><th class="num">Vol</th><th class="num">Sharpe</th><th class="num">Skew</th><th class="num">Kurt</th></tr></thead><tbody>';
+  tickers.forEach((t, i) => {
+    const vals = STATE.logRet.map(r => r[t]);
+    const mu = d3.mean(vals), n = vals.length;
+    let m3 = 0, m4 = 0;
+    const std = d3.deviation(vals);
+    vals.forEach(v => { const d = (v - mu) / std; m3 += d ** 3; m4 += d ** 4; });
+    const skew = m3 / n, kurt = m4 / n - 3;
+    const retPct = (STATE.annRet[t] * 100).toFixed(1);
+    const volPct = (STATE.annVol[t] * 100).toFixed(1);
+    const retCls = STATE.annRet[t] >= 0 ? 'pos' : 'neg';
+    html += `<tr>
+      <td class="ticker-cell" style="color:${col(STATE.tickers.indexOf(t))}">${t}</td>
+      <td class="num ${retCls}">${retPct}%</td>
+      <td class="num">${volPct}%</td>
+      <td class="num">${STATE.sharpe[t].toFixed(2)}</td>
+      <td class="num">${skew.toFixed(2)}</td>
+      <td class="num">${kurt.toFixed(1)}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+function renderHeatmap(tickers) {
+  const wrap = document.getElementById('heatmapWrap');
+  wrap.innerHTML = '';
+  drawHeatmap(wrap, STATE.corr, tickers, d3.interpolateRdBu, [-1, 1], true);
+}
+
+function drawHeatmap(container, mat, labels, interpolator, domain, annotate) {
+  const n = labels.length;
+  const W = container.clientWidth;
+  const cellSize = Math.min(Math.floor((W - 60) / n), 52);
+  const mL = 48, mT = 10;
+  const totalW = mL + n * cellSize;
+  const totalH = mT + n * cellSize + 30;
+  const svg = d3.select(container).append('svg').attr('class', 'chart')
+    .attr('viewBox', `0 0 ${totalW} ${totalH}`);
+  const colorScale = d3.scaleSequential(interpolator).domain(domain);
+
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      const v = mat[i][j];
+      const g = svg.append('g');
+      g.append('rect')
+        .attr('x', mL + j * cellSize).attr('y', mT + i * cellSize)
+        .attr('width', cellSize - 1).attr('height', cellSize - 1)
+        .attr('rx', 2).attr('fill', colorScale(v))
+        .on('mousemove', e => showTooltip(`${labels[i]} × ${labels[j]}: ${v.toFixed(3)}`, e))
+        .on('mouseleave', hideTooltip);
+      if (annotate && cellSize >= 28) {
+        g.append('text')
+          .attr('x', mL + j * cellSize + cellSize / 2 - .5)
+          .attr('y', mT + i * cellSize + cellSize / 2 + 3.5)
+          .attr('text-anchor', 'middle').attr('font-size', cellSize > 38 ? 10 : 8)
+          .attr('fill', Math.abs(v) > 0.6 ? 'white' : '#333')
+          .text(v.toFixed(2));
+      }
+    }
+    svg.append('text').attr('x', mL - 4).attr('y', mT + i * cellSize + cellSize / 2 + 3)
+      .attr('text-anchor', 'end').attr('font-size', 10).attr('fill', '#555').text(labels[i]);
+    svg.append('text').attr('x', mL + i * cellSize + cellSize / 2)
+      .attr('y', mT + n * cellSize + 14)
+      .attr('text-anchor', 'middle').attr('font-size', 10).attr('fill', '#555').text(labels[i]);
+  }
+}
+
+function populateHistSelect(tickers) {
+  const sel = document.getElementById('histAssetSelect');
+  const prev = sel.value;
+  sel.innerHTML = '';
+  tickers.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t; opt.textContent = t;
+    sel.appendChild(opt);
+  });
+  if (tickers.includes(prev)) sel.value = prev;
+}
+
+function renderHistogram() {
+  const wrap = document.getElementById('histWrap');
+  wrap.innerHTML = '';
+  const t = document.getElementById('histAssetSelect').value;
+  if (!STATE.logRet || !t || t === '-') return;
+  const vals = STATE.logRet.map(r => r[t]).filter(v => v != null);
+  const W = wrap.clientWidth, H = 280;
+  const m = { t: 15, r: 15, b: 40, l: 45 };
+  const svg = d3.select(wrap).append('svg').attr('class', 'chart').attr('viewBox', `0 0 ${W} ${H}`);
+
+  const x = d3.scaleLinear().domain(d3.extent(vals)).nice().range([m.l, W - m.r]);
+  const bins = d3.bin().domain(x.domain()).thresholds(60)(vals);
+  const y = d3.scaleLinear().domain([0, d3.max(bins, b => b.length)]).nice().range([H - m.b, m.t]);
+
+  svg.append('g').attr('transform', `translate(0,${H - m.b})`).call(d3.axisBottom(x).ticks(6).tickFormat(d3.format('.1%')))
+    .call(g => g.select('.domain').remove());
+  svg.append('g').attr('transform', `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(5))
+    .call(g => g.select('.domain').remove());
+
+  const idx = STATE.tickers.indexOf(t);
+  svg.selectAll('.bar').data(bins).enter().append('rect')
+    .attr('x', d => x(d.x0) + .5).attr('y', y(0))
+    .attr('width', d => Math.max(0, x(d.x1) - x(d.x0) - 1))
+    .attr('height', 0)
+    .attr('fill', col(idx >= 0 ? idx : 0)).attr('fill-opacity', .6)
+    .on('mousemove', (e, d) => showTooltip(`${d.length} obs in [${(d.x0*100).toFixed(1)}%, ${(d.x1*100).toFixed(1)}%]`, e))
+    .on('mouseleave', hideTooltip)
+    .transition().duration(500).delay((d, i) => i * 5)
+    .attr('y', d => y(d.length)).attr('height', d => y(0) - y(d.length));
+
+  const mu = d3.mean(vals), sigma = d3.deviation(vals);
+  const xVals = d3.range(x.domain()[0], x.domain()[1], (x.domain()[1] - x.domain()[0]) / 200);
+  const binW = bins[0] ? bins[0].x1 - bins[0].x0 : 0.001;
+  const normLine = xVals.map(xv => ({
+    x: xv,
+    y: vals.length * binW * (1 / (sigma * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * ((xv - mu) / sigma) ** 2)
+  }));
+  const line = d3.line().x(d => x(d.x)).y(d => y(d.y)).curve(d3.curveBasis);
+  svg.append('path').datum(normLine).attr('d', line)
+    .attr('fill', 'none').attr('stroke', '#dc2626').attr('stroke-width', 1.8).attr('stroke-dasharray', '4,3');
+
+  svg.append('text').attr('x', W - m.r).attr('y', m.t + 12).attr('text-anchor', 'end')
+    .attr('font-size', 10).attr('fill', '#dc2626').text('Normal fit');
+}
+
+function renderCumulative(tickers) {
+  const wrap = document.getElementById('cumulWrap');
+  wrap.innerHTML = '';
+  const W = wrap.clientWidth, H = 280;
+  const m = { t: 15, r: 15, b: 35, l: 55 };
+  const svg = d3.select(wrap).append('svg').attr('class', 'chart').attr('viewBox', `0 0 ${W} ${H}`);
+
+  const series = tickers.map(t => {
+    let cum = 0;
+    return STATE.logRet.map(r => { cum += r[t]; return { date: r.Date, val: Math.exp(cum) }; });
+  });
+
+  const x = d3.scaleTime()
+    .domain(d3.extent(STATE.logRet, r => r.Date)).range([m.l, W - m.r]);
+  const allVals = series.flat().map(d => d.val);
+  const y = d3.scaleLinear()
+    .domain([d3.min(allVals) * .95, d3.max(allVals) * 1.05]).range([H - m.b, m.t]);
+
+  svg.append('g').attr('transform', `translate(0,${H - m.b})`).call(d3.axisBottom(x).ticks(6))
+    .call(g => g.select('.domain').remove());
+  svg.append('g').attr('transform', `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(5).tickFormat(d => '$' + d.toFixed(1)))
+    .call(g => g.select('.domain').remove());
+
+  const line = d3.line().x(d => x(d.date)).y(d => y(d.val)).curve(d3.curveMonotoneX);
+  series.forEach((s, i) => {
+    svg.append('path').datum(s).attr('d', line)
+      .attr('fill', 'none').attr('stroke', col(STATE.tickers.indexOf(tickers[i]))).attr('stroke-width', 1.5).attr('stroke-opacity', .85);
+  });
+
+  const legendDiv = document.createElement('div');
+  legendDiv.className = 'legend-row';
+  tickers.forEach((t, i) => {
+    legendDiv.innerHTML += `<span class="legend-item"><span class="legend-swatch" style="background:${col(STATE.tickers.indexOf(t))}"></span>${t}</span>`;
+  });
+  wrap.appendChild(legendDiv);
+}
+
+// ===============================================
+//  RENDERERS - Tab 2: Risk Estimation
+// ===============================================
+
+function renderRisk() {
+  if (!STATE.logRet) return;
+  const tickers = STATE.active || STATE.tickers;
+  STATE.covEWMA = ewmaCov(tickers);
+
+  const annFactor = TRADING_DAYS;
+  const toArr = mat => mat.map(r => Array.from(r).map(v => v * annFactor));
+  const annSample = toArr(STATE.covSample);
+  const annLW = toArr(STATE.covLW);
+  const annEWMA = toArr(STATE.covEWMA);
+
+  const allVals = [annSample, annLW, annEWMA].flatMap(m => m.flatMap(r => r));
+  const domain = [d3.min(allVals), d3.max(allVals)];
+
+  const wrap1 = document.getElementById('covSampleWrap');
+  const wrap2 = document.getElementById('covLWWrap');
+  const wrap3 = document.getElementById('covEWMAWrap');
+  wrap1.innerHTML = ''; wrap2.innerHTML = ''; wrap3.innerHTML = '';
+
+  const showDiff = document.getElementById('diffToggle') && document.getElementById('diffToggle').checked;
+  const annotateOk = tickers.length <= 7;
+
+  if (showDiff) {
+    const diffLW = annLW.map((r, i) => r.map((v, j) => v - annSample[i][j]));
+    const diffEW = annEWMA.map((r, i) => r.map((v, j) => v - annSample[i][j]));
+    const diffInterp = d3.interpolateRdBu;
+
+    const maxAbsLW = d3.max(diffLW.flatMap(r => r).map(Math.abs)) || 0.001;
+    const maxAbsEW = d3.max(diffEW.flatMap(r => r).map(Math.abs)) || 0.001;
+
+    drawHeatmap(wrap1, annSample, tickers, d3.interpolateYlOrRd, domain, annotateOk);
+    drawHeatmap(wrap2, diffLW, tickers, diffInterp, [maxAbsLW, -maxAbsLW], annotateOk);
+    drawHeatmap(wrap3, diffEW, tickers, diffInterp, [maxAbsEW, -maxAbsEW], annotateOk);
+  } else {
+    const interp = d3.interpolateYlOrRd;
+    drawHeatmap(wrap1, annSample, tickers, interp, domain, annotateOk);
+    drawHeatmap(wrap2, annLW, tickers, interp, domain, annotateOk);
+    drawHeatmap(wrap3, annEWMA, tickers, interp, domain, annotateOk);
+  }
+
+  document.getElementById('lwAlpha').textContent = 'α = ' + (STATE._lwAlpha || 0).toFixed(3);
+  document.getElementById('ewmaInfo').textContent = 'λ = ' + (document.getElementById('ewmaLambda').value);
+
+  renderEigenSpectrum(tickers, annSample, annLW, annEWMA);
+  renderConditionTable(annSample, annLW, annEWMA);
+}
+
+function renderEigenSpectrum(tickers, S, LW, EW) {
+  const wrap = document.getElementById('eigenWrap');
+  wrap.innerHTML = '';
+  const eigS = eigenvalues(S.map(r => [...r]));
+  const eigLW = eigenvalues(LW.map(r => [...r]));
+  const eigEW = eigenvalues(EW.map(r => [...r]));
+
+  const W = wrap.clientWidth, H = 250;
+  const m = { t: 15, r: 15, b: 40, l: 55 };
+  const svg = d3.select(wrap).append('svg').attr('class', 'chart').attr('viewBox', `0 0 ${W} ${H}`);
+
+  const n = eigS.length;
+  const x = d3.scaleBand().domain(d3.range(n)).range([m.l, W - m.r]).padding(.3);
+  const allE = [...eigS, ...eigLW, ...eigEW];
+  const y = d3.scaleLinear().domain([0, d3.max(allE) * 1.1]).range([H - m.b, m.t]);
+
+  svg.append('g').attr('transform', `translate(0,${H - m.b})`)
+    .call(d3.axisBottom(x).tickFormat(i => i + 1)).call(g => g.select('.domain').remove());
+  svg.append('g').attr('transform', `translate(${m.l},0)`)
+    .call(d3.axisLeft(y).ticks(5)).call(g => g.select('.domain').remove());
+  svg.append('text').attr('x', W / 2).attr('y', H - 2).attr('text-anchor', 'middle')
+    .attr('font-size', 10).attr('fill', '#888').text('Eigenvalue index');
+
+  const bw = x.bandwidth() / 3;
+  const colors = ['#2563eb', '#16a34a', '#d97706'];
+  const names = ['Sample', 'Ledoit-Wolf', 'EWMA'];
+  [eigS, eigLW, eigEW].forEach((eig, si) => {
+    eig.forEach((v, i) => {
+      svg.append('rect').attr('x', x(i) + si * bw).attr('y', y(v))
+        .attr('width', bw - 1).attr('height', y(0) - y(v))
+        .attr('fill', colors[si]).attr('fill-opacity', .75)
+        .on('mousemove', e => showTooltip(`${names[si]} λ${i + 1}: ${v.toFixed(4)}`, e))
+        .on('mouseleave', hideTooltip);
+    });
+  });
+
+  const legendDiv = document.createElement('div');
+  legendDiv.className = 'legend-row';
+  names.forEach((nm, i) => {
+    legendDiv.innerHTML += `<span class="legend-item"><span class="legend-swatch" style="background:${colors[i]}"></span>${nm}</span>`;
+  });
+  wrap.appendChild(legendDiv);
+}
+
+function renderConditionTable(S, LW, EW) {
+  const wrap = document.getElementById('condTableWrap');
+  const cond = mat => {
+    const e = eigenvalues(mat.map(r => [...r]));
+    return (d3.max(e) / d3.min(e.filter(v => v > 1e-12))).toFixed(1);
+  };
+  const frobDiff = (A, B) => {
+    let s = 0;
+    for (let i = 0; i < A.length; i++)
+      for (let j = 0; j < A.length; j++)
+        s += (A[i][j] - B[i][j]) ** 2;
+    return Math.sqrt(s).toFixed(4);
+  };
+  wrap.innerHTML = `<table class="stats-table">
+    <thead><tr><th>Metric</th><th class="num">Sample</th><th class="num">Ledoit-Wolf</th><th class="num">EWMA</th></tr></thead>
+    <tbody>
+      <tr><td>Condition number</td><td class="num">${cond(S)}</td><td class="num">${cond(LW)}</td><td class="num">${cond(EW)}</td></tr>
+      <tr><td>Frobenius dist. to Sample</td><td class="num">0</td><td class="num">${frobDiff(S, LW)}</td><td class="num">${frobDiff(S, EW)}</td></tr>
+    </tbody></table>`;
+}
+
+// ===============================================
+//  RENDERERS - Tab 3: Portfolio Builder
+// ===============================================
+
+function renderPortfolio() {
+  if (!STATE.logRet) return;
+  const tickers = STATE.active || STATE.tickers;
+  computePortfolios(tickers);
+  renderFrontier(tickers);
+  renderStackedWeights(tickers);
+  renderPortfolioComparison(tickers);
+}
+
+function renderFrontier(tickers) {
+  const wrap = document.getElementById('frontierWrap');
+  wrap.innerHTML = '';
+  const frontier = STATE.portfolios.frontier;
+  if (!frontier.length) return;
+
+  const W = wrap.clientWidth, H = 340;
+  const m = { t: 20, r: 20, b: 45, l: 60 };
+  const svg = d3.select(wrap).append('svg').attr('class', 'chart').attr('viewBox', `0 0 ${W} ${H}`);
+
+  const x = d3.scaleLinear()
+    .domain([d3.min(frontier, d => d.vol) * .85 * 100, d3.max(frontier, d => d.vol) * 1.15 * 100])
+    .range([m.l, W - m.r]);
+  const y = d3.scaleLinear()
+    .domain([d3.min(frontier, d => d.ret) * 100 - 1, d3.max(frontier, d => d.ret) * 100 + 1])
+    .range([H - m.b, m.t]);
+
+  svg.append('g').attr('transform', `translate(0,${H - m.b})`).call(d3.axisBottom(x).ticks(6).tickFormat(d => d.toFixed(0) + '%'))
+    .call(g => g.select('.domain').remove());
+  svg.append('g').attr('transform', `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(6).tickFormat(d => d.toFixed(0) + '%'))
+    .call(g => g.select('.domain').remove());
+  svg.append('text').attr('x', W / 2).attr('y', H - 4).attr('text-anchor', 'middle').attr('font-size', 11).attr('fill', '#888').text('Portfolio Volatility');
+  svg.append('text').attr('transform', 'rotate(-90)').attr('x', -H / 2).attr('y', 14).attr('text-anchor', 'middle').attr('font-size', 11).attr('fill', '#888').text('Expected Return');
+
+  const line = d3.line().x(d => x(d.vol * 100)).y(d => y(d.ret * 100)).curve(d3.curveMonotoneX);
+  const path = svg.append('path').datum(frontier).attr('d', line)
+    .attr('fill', 'none').attr('stroke', '#2563eb').attr('stroke-width', 2);
+  const totalLen = path.node().getTotalLength();
+  path.attr('stroke-dasharray', totalLen).attr('stroke-dashoffset', totalLen)
+    .transition().duration(800).attr('stroke-dashoffset', 0);
+
+  tickers.forEach((t, i) => {
+    svg.append('circle').attr('cx', x(STATE.annVol[t] * 100)).attr('cy', y(STATE.annRet[t] * 100))
+      .attr('r', 4).attr('fill', '#aaa').attr('stroke', 'white').attr('stroke-width', 1);
+    svg.append('text').attr('x', x(STATE.annVol[t] * 100) + 6).attr('y', y(STATE.annRet[t] * 100) + 3)
+      .attr('font-size', 9).attr('fill', '#888').text(t);
+  });
+
+  const mu = STATE.portfolios.mu;
+  const cov = STATE.portfolios.cov;
+  const rf = STATE.portfolios.rf;
+  const specials = [
+    { key: 'minvar', label: 'Min Var', color: '#16a34a' },
+    { key: 'tangency', label: 'Tangency', color: '#dc2626' },
+    { key: 'riskparity', label: 'Risk Parity', color: '#d97706' },
+    { key: 'meanvar', label: 'Mean-Var', color: '#7c3aed' },
+  ];
+
+  specials.forEach(sp => {
+    const w = STATE.portfolios[sp.key];
+    if (!w) return;
+    const st = portfolioStats(w, mu, cov);
+    const cx = x(st.vol * 100), cy = y(st.ret * 100);
+    svg.append('circle').attr('cx', cx).attr('cy', cy)
+      .attr('r', 7).attr('fill', sp.color).attr('stroke', 'white').attr('stroke-width', 2)
+      .on('mousemove', e => showTooltip(
+        `<b>${sp.label}</b><br>Return: ${(st.ret*100).toFixed(1)}%<br>Vol: ${(st.vol*100).toFixed(1)}%<br>Sharpe: ${st.sharpe.toFixed(2)}`, e))
+      .on('mouseleave', hideTooltip);
+    svg.append('text').attr('x', cx + 10).attr('y', cy + 3)
+      .attr('font-size', 9).attr('fill', sp.color).attr('font-weight', 600).text(sp.label);
+  });
+
+  if (STATE.portfolios.tangency) {
+    const tSt = portfolioStats(STATE.portfolios.tangency, mu, cov);
+    svg.append('line')
+      .attr('x1', x(0)).attr('y1', y(rf * 100))
+      .attr('x2', x(tSt.vol * 200)).attr('y2', y((rf + (tSt.ret - rf) / tSt.vol * tSt.vol * 2) * 100))
+      .attr('stroke', '#dc2626').attr('stroke-width', 1).attr('stroke-dasharray', '5,4').attr('stroke-opacity', .5);
+  }
+}
+
+function renderStackedWeights(tickers) {
+  const wrap = document.getElementById('stackedWeightsWrap');
+  wrap.innerHTML = '';
+  const methods = [
+    { key: 'minvar', label: 'Min Var' },
+    { key: 'tangency', label: 'Tangency' },
+    { key: 'riskparity', label: 'Risk Parity' },
+    { key: 'meanvar', label: 'Mean-Var' },
+  ];
+  const available = methods.filter(m => STATE.portfolios[m.key]);
+  if (!available.length) { wrap.innerHTML = '<div class="empty">Not available</div>'; return; }
+
+  const W = wrap.clientWidth, H = 320;
+  const mg = { t: 15, r: 15, b: 50, l: 50 };
+  const svg = d3.select(wrap).append('svg').attr('class', 'chart').attr('viewBox', `0 0 ${W} ${H}`);
+
+  const x0 = d3.scaleBand().domain(available.map(m => m.label)).range([mg.l, W - mg.r]).padding(.25);
+  const y = d3.scaleLinear().domain([0, 1]).range([H - mg.b, mg.t]);
+
+  svg.append('g').attr('transform', `translate(0,${H - mg.b})`)
+    .call(d3.axisBottom(x0)).call(g => g.select('.domain').remove());
+  svg.append('g').attr('transform', `translate(${mg.l},0)`)
+    .call(d3.axisLeft(y).ticks(5).tickFormat(d3.format('.0%'))).call(g => g.select('.domain').remove());
+
+  available.forEach(method => {
+    const weights = STATE.portfolios[method.key];
+    const absW = weights.map(v => Math.max(0, v));
+    const total = d3.sum(absW) || 1;
+    const normed = absW.map(v => v / total);
+
+    let cumY = 0;
+    tickers.forEach((t, i) => {
+      if (normed[i] < 0.005) { cumY += normed[i]; return; }
+      const barY = y(cumY + normed[i]);
+      const barH = y(cumY) - barY;
+      const idx = STATE.tickers.indexOf(t);
+      svg.append('rect')
+        .attr('x', x0(method.label)).attr('y', barY)
+        .attr('width', x0.bandwidth()).attr('height', barH)
+        .attr('fill', col(idx)).attr('fill-opacity', .85)
+        .on('mousemove', e => showTooltip(`<b>${method.label}</b><br>${t}: ${(weights[i]*100).toFixed(1)}%`, e))
+        .on('mouseleave', hideTooltip);
+      if (barH > 14) {
+        svg.append('text')
+          .attr('x', x0(method.label) + x0.bandwidth() / 2).attr('y', barY + barH / 2 + 4)
+          .attr('text-anchor', 'middle').attr('font-size', 9).attr('fill', 'white').attr('font-weight', 600)
+          .text(t);
+      }
+      cumY += normed[i];
+    });
+  });
+
+  const legendDiv = document.createElement('div');
+  legendDiv.className = 'legend-row';
+  tickers.forEach((t, i) => {
+    legendDiv.innerHTML += `<span class="legend-item"><span class="legend-swatch" style="background:${col(STATE.tickers.indexOf(t))}"></span>${t}</span>`;
+  });
+  wrap.appendChild(legendDiv);
+}
+
+function renderPortfolioComparison(tickers) {
+  const wrap = document.getElementById('pfCompareWrap');
+  const mu = STATE.portfolios.mu;
+  const cov = STATE.portfolios.cov;
+  const methods = [
+    { key: 'minvar', label: 'Min Variance' },
+    { key: 'tangency', label: 'Tangency' },
+    { key: 'riskparity', label: 'Risk Parity' },
+    { key: 'meanvar', label: 'Mean-Variance' },
+  ];
+  let html = `<table class="stats-table"><thead><tr><th>Method</th><th class="num">Return</th><th class="num">Volatility</th><th class="num">Sharpe</th><th class="num">Max Weight</th></tr></thead><tbody>`;
+  methods.forEach(m => {
+    const w = STATE.portfolios[m.key];
+    if (!w) { html += `<tr><td>${m.label}</td><td colspan="4" class="num">-</td></tr>`; return; }
+    const st = portfolioStats(w, mu, cov);
+    html += `<tr>
+      <td class="ticker-cell">${m.label}</td>
+      <td class="num ${st.ret >= 0 ? 'pos' : 'neg'}">${(st.ret*100).toFixed(1)}%</td>
+      <td class="num">${(st.vol*100).toFixed(1)}%</td>
+      <td class="num">${st.sharpe.toFixed(2)}</td>
+      <td class="num">${(d3.max(w)*100).toFixed(1)}%</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+// ----- Init -----
 renderChips();

@@ -7,7 +7,7 @@
 |Florian Dinant|361013| 
 
 
-[Milestone 1](#milestone-1) • [Milestone 2](#milestone-2) • [Milestone 3](#milestone-3)
+[Milestone 1](#milestone-1) | [Milestone 2](#milestone-2) | [Milestone 3](#milestone-3)
 
 ## Milestone 1 (20th March, 5pm)
 
@@ -50,118 +50,47 @@ Our approach aims to make the assumptions of portfolio construction visible and 
 Visual inspiration comes from the Financial Times's clean, annotation-driven chart style, and from Observable notebooks, which make mathematical processes explorable through linked interactive graphics.
 
 **Declaration of Originality:** We confirm that we have not explored this specific dataset combination nor developed this portfolio visualization concept in any previous context (such as ML, ADA courses, or past semester projects). This is an entirely original submission for this class.
+
 ## Milestone 2 (17th April, 5pm)
 
 **10% of the final grade**
 
-````md
-# Portfolio Allocation Engine
+Project description (2 pages): [`Milestone2_DataViz.pdf`](Milestone2_DataViz.pdf)
 
-Interactive web-based dashboard for portfolio analysis, risk visualization, and asset allocation.
+Functional prototype: [`index.html`](index.html)
 
----
+### How to run locally
 
-## 🚀 How to run the project
-
-This project is fully static (HTML + JS + D3.js). No build step is required.
-
-### 1. Clone the repository
+The project is fully static (HTML + CSS + JavaScript with D3.js from CDN), but a local HTTP server is required so the browser can load `data/prices.csv`.
 
 ```bash
 git clone <repo-url>
-cd <repo-name>
-````
-
----
-
-### 2. Install a local server
-
-You need a local HTTP server because browsers block local file access (CSV loading, etc.).
-
-#### Option A (recommended): npx serve
-
-If you already have Node.js installed:
-
-```bash
-npx serve
+cd Quant-Allocation-Research-Team
+python3 -m http.server 8080
 ```
 
-Then open the URL shown in the terminal (usually):
+Then open `http://localhost:8080/index.html` and click **Load Data**.
 
-```
-http://localhost:3000
-```
+Any other static server works too (`npx serve`, `php -S`, etc.). Opening `index.html` directly with `file://` will fail because of CORS.
 
----
+### Live demo
 
-#### If `npx` is not available
+The dashboard is also hosted via GitHub Pages: **https://com-480-data-visualization.github.io/Quant-Allocation-Research-Team/**
 
-Install Node.js (which includes npm + npx):
-
-* [https://nodejs.org/](https://nodejs.org/)
-
-After installation, verify:
-
-```bash
-node -v
-npm -v
-npx -v
-```
-
-Then run again:
-
-```bash
-npx serve
-```
-
----
-
-#### Option B: install serve globally
-
-```bash
-npm install -g serve
-serve
-```
-
----
-
-## 📁 Project structure
+### Project structure
 
 ```
 .
-├── index.html
+├── index.html             # main dashboard (3 tabs)
+├── engine.js              # data loading, stats, covariance, optimization, rendering
 ├── style.css
-├── engine.js
 ├── data/
-│   └── prices.csv
-└── README.md
+│   ├── prices.csv         # 2010-2025 daily closing prices for 9 assets
+│   └── fetch_data.py
+├── eda.ipynb              # Milestone 1 exploratory analysis
+├── requirements.txt
+└── Milestone2_DataViz.pdf
 ```
-
----
-
-## ⚠️ Important notes
-
-* Do NOT open `index.html` directly in the browser (`file://...`)
-  → CSV loading will fail due to CORS restrictions.
-
-* Always use a local server (`npx serve` or equivalent)
-
----
-
-## 🧠 Features
-
-* Asset Explorer (returns, volatility, Sharpe ratio)
-* Correlation matrix heatmap
-* Return distribution histograms
-* Interactive portfolio analytics (WIP)
-
----
-
-## 🛠 Tech stack
-
-* Vanilla JavaScript
-* D3.js v7
-* HTML / CSS
 
 
 ## Milestone 3 (29th May, 5pm)
@@ -173,4 +102,3 @@ serve
 
 - < 24h: 80% of the grade for the milestone
 - < 48h: 70% of the grade for the milestone
-
