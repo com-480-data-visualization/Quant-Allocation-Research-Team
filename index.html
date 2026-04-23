@@ -192,6 +192,28 @@
       </div>
 
       <div class="card">
+        <div class="card-header">
+          <span class="card-title">Feasible Set — Monte Carlo</span>
+          <span class="card-subtitle">
+            <label class="toggle-label" style="margin-right:12px">
+              <input type="checkbox" id="mcToggle" checked onchange="renderPortfolio()"> Enabled
+            </label>
+            <span class="control-label">N:</span>
+            <select id="mcN" class="inline-select" onchange="renderPortfolio()">
+              <option value="1000">1 000</option>
+              <option value="3000" selected>3 000</option>
+              <option value="5000">5 000</option>
+              <option value="10000">10 000</option>
+            </select>
+            <button class="btn-small" style="margin-left:8px" onclick="resampleMc()">Resample</button>
+          </span>
+        </div>
+        <div class="card-body">
+          <div class="chart-wrap" id="mcWrap"><div class="empty">Load data</div></div>
+        </div>
+      </div>
+
+      <div class="card">
         <div class="card-header"><span class="card-title">Portfolio Comparison</span></div>
         <div class="card-body" style="padding:0">
           <div id="pfCompareWrap"><div class="empty">Load data</div></div>

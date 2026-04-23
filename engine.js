@@ -852,7 +852,289 @@ function renderPortfolio() {
   computePortfolios(tickers);
   renderFrontier(tickers);
   renderStackedWeights(tickers);
+  renderMonteCarlo(tickers);
   renderPortfolioComparison(tickers);
+}
+
+// ----- Monte Carlo feasible set -----
+
+function sampleDirichletUniform(n) {
+  const w = new Array(n);
+  let s = 0;
+  for (let i = 0; i < n; i++) {
+    const u = -Math.log(1 - Math.random());
+    w[i] = u; s += u;
+  }
+  for (let i = 0; i < n; i++) w[i] /= s;
+  return w;
+}
+
+function monteCarloCloud(mu, cov, N, rf) {
+  const n = mu.length;
+  const pts = new Array(N);
+  for (let k = 0; k < N; k++) {
+    const w = sampleDirichletUniform(n);
+    const ret = dot(w, mu);
+    const vol = Math.sqrt(dot(w, matVecMul(cov, w)));
+    pts[k] = { w, ret, vol, sharpe: (ret - rf) / vol };
+  }
+  return pts;
+}
+
+let MC_SEED_BUMP = 0;
+const MC_STATE = { key: '', cloud: null };
+function resampleMc() { MC_SEED_BUMP++; MC_STATE.key = ''; renderPortfolio(); }
+
+function starPath(r) {
+  const pts = [];
+  for (let i = 0; i < 10; i++) {
+    const a = Math.PI / 5 * i - Math.PI / 2;
+    const rr = i % 2 === 0 ? r : r * 0.45;
+    pts.push([Math.cos(a) * rr, Math.sin(a) * rr]);
+  }
+  return 'M' + pts.map(p => p.map(v => v.toFixed(2)).join(',')).join('L') + 'Z';
+}
+
+function weightBarsHtml(w, tickers) {
+  const pairs = tickers.map((t, i) => ({ t, w: w[i] })).sort((a, b) => b.w - a.w);
+  let html = '<div style="margin-top:4px">';
+  pairs.forEach(p => {
+    html += `<div style="display:flex;align-items:center;gap:6px;font-size:10px;margin-top:2px">
+      <span style="width:34px;font-weight:600">${p.t}</span>
+      <div style="flex:1;min-width:70px;background:rgba(255,255,255,0.15);height:5px;border-radius:3px;overflow:hidden">
+        <div style="width:${(p.w*100).toFixed(1)}%;height:100%;background:#60a5fa"></div>
+      </div>
+      <span style="width:34px;text-align:right;opacity:.75">${(p.w*100).toFixed(1)}%</span>
+    </div>`;
+  });
+  return html + '</div>';
+}
+
+function renderMonteCarlo(tickers) {
+  const wrap = document.getElementById('mcWrap');
+  wrap.innerHTML = '';
+  const mcOn = document.getElementById('mcToggle').checked;
+  if (!mcOn) {
+    wrap.innerHTML = '<div class="empty">Monte Carlo disabled — toggle to enable</div>';
+    return;
+  }
+  const mu = STATE.portfolios.mu;
+  const cov = STATE.portfolios.cov;
+  const rf = STATE.portfolios.rf;
+  const frontier = STATE.portfolios.frontier;
+  if (!mu || !cov || !frontier.length) return;
+
+  const N = parseInt(document.getElementById('mcN').value, 10);
+  const covSel = document.getElementById('pfCovSelect').value;
+  const key = `${N}|${covSel}|${STATE.window}|${tickers.join(',')}|${MC_SEED_BUMP}`;
+  let animate = false;
+  if (key !== MC_STATE.key) {
+    MC_STATE.key = key;
+    MC_STATE.cloud = monteCarloCloud(mu, cov, N, rf);
+    animate = true;
+  } else {
+    for (const p of MC_STATE.cloud) p.sharpe = (p.ret - rf) / p.vol;
+  }
+  const cloud = MC_STATE.cloud;
+
+  const W = wrap.clientWidth, H = 400;
+  const m = { t: 28, r: 120, b: 48, l: 60 };
+
+  const allVols = cloud.map(d => d.vol).concat(frontier.map(d => d.vol));
+  const allRets = cloud.map(d => d.ret).concat(frontier.map(d => d.ret));
+  const xDom = [d3.min(allVols) * 100 * 0.9, d3.max(allVols) * 100 * 1.05];
+  const yDom = [d3.min(allRets) * 100 - 1, d3.max(allRets) * 100 + 1];
+  const x = d3.scaleLinear().domain(xDom).range([m.l, W - m.r]);
+  const y = d3.scaleLinear().domain(yDom).range([H - m.b, m.t]);
+
+  const sharpeExt = d3.extent(cloud, d => d.sharpe);
+  const color = d3.scaleSequential(d3.interpolateViridis).domain(sharpeExt);
+
+  wrap.style.position = 'relative';
+  const canvas = document.createElement('canvas');
+  canvas.width = W * devicePixelRatio;
+  canvas.height = H * devicePixelRatio;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  canvas.style.position = 'absolute';
+  canvas.style.pointerEvents = 'none';
+  wrap.appendChild(canvas);
+  const ctx = canvas.getContext('2d');
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+
+  function drawPoint(d) {
+    ctx.fillStyle = color(d.sharpe);
+    ctx.globalAlpha = 0.6;
+    ctx.beginPath();
+    ctx.arc(x(d.vol * 100), y(d.ret * 100), 1.9, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+
+  const svg = d3.select(wrap).append('svg').attr('class', 'chart')
+    .attr('viewBox', `0 0 ${W} ${H}`).style('position', 'relative');
+
+  svg.append('g').attr('transform', `translate(0,${H - m.b})`)
+    .call(d3.axisBottom(x).ticks(6).tickFormat(d => d.toFixed(0) + '%'))
+    .call(g => g.select('.domain').remove());
+  svg.append('g').attr('transform', `translate(${m.l},0)`)
+    .call(d3.axisLeft(y).ticks(6).tickFormat(d => d.toFixed(0) + '%'))
+    .call(g => g.select('.domain').remove());
+  svg.append('text').attr('x', (W - m.r + m.l) / 2).attr('y', H - 6)
+    .attr('text-anchor', 'middle').attr('font-size', 11).attr('fill', '#888').text('Volatility');
+  svg.append('text').attr('transform', 'rotate(-90)').attr('x', -H / 2).attr('y', 14)
+    .attr('text-anchor', 'middle').attr('font-size', 11).attr('fill', '#888').text('Expected Return');
+
+  const counterText = svg.append('text').attr('x', m.l + 8).attr('y', m.t - 10)
+    .attr('font-size', 11).attr('fill', '#555').attr('font-weight', 600).text('');
+
+  tickers.forEach(t => {
+    svg.append('circle').attr('cx', x(STATE.annVol[t] * 100)).attr('cy', y(STATE.annRet[t] * 100))
+      .attr('r', 3).attr('fill', '#555').attr('stroke', 'white').attr('stroke-width', 1);
+    svg.append('text').attr('x', x(STATE.annVol[t] * 100) + 5).attr('y', y(STATE.annRet[t] * 100) + 3)
+      .attr('font-size', 9).attr('fill', '#555').text(t);
+  });
+
+  const bestG = svg.append('g').attr('class', 'mc-best').style('display', 'none');
+  const bestPulse = bestG.append('circle').attr('r', 8).attr('fill', 'none')
+    .attr('stroke', '#fbbf24').attr('stroke-width', 2);
+  bestG.append('path').attr('d', starPath(9))
+    .attr('fill', '#fbbf24').attr('stroke', '#b45309').attr('stroke-width', 1);
+  const bestLabel = bestG.append('text').attr('y', -14).attr('text-anchor', 'middle')
+    .attr('font-size', 10).attr('font-weight', 700).attr('fill', '#b45309').text('');
+
+  function pulseBest() {
+    bestPulse.attr('r', 6).attr('stroke-opacity', 0.9)
+      .transition().duration(1200).ease(d3.easeCubicOut)
+      .attr('r', 22).attr('stroke-opacity', 0)
+      .on('end', pulseBest);
+  }
+
+  const lineGen = d3.line().x(d => x(d.vol * 100)).y(d => y(d.ret * 100)).curve(d3.curveMonotoneX);
+  const frontierPath = svg.append('path').datum(frontier).attr('d', lineGen)
+    .attr('fill', 'none').attr('stroke', '#111').attr('stroke-width', 2).attr('stroke-opacity', 0.85);
+
+  const specials = [
+    { key: 'minvar',     label: 'Min Var',     color: '#16a34a' },
+    { key: 'tangency',   label: 'Tangency',    color: '#dc2626' },
+    { key: 'riskparity', label: 'Risk Parity', color: '#d97706' },
+  ];
+  const specialsG = svg.append('g').attr('class', 'mc-specials');
+  specials.forEach(sp => {
+    const w = STATE.portfolios[sp.key];
+    if (!w) return;
+    const st = portfolioStats(w, mu, cov);
+    const g = specialsG.append('g').attr('transform', `translate(${x(st.vol*100)},${y(st.ret*100)})`);
+    g.append('circle').attr('r', 6).attr('fill', sp.color)
+      .attr('stroke', 'white').attr('stroke-width', 2)
+      .on('mousemove', e => showTooltip(
+        `<b>${sp.label}</b><br>Return: ${(st.ret*100).toFixed(1)}%<br>Vol: ${(st.vol*100).toFixed(1)}%<br>Sharpe: ${st.sharpe.toFixed(2)}`, e))
+      .on('mouseleave', hideTooltip);
+    g.append('text').attr('x', 10).attr('y', 3).attr('font-size', 9)
+      .attr('fill', sp.color).attr('font-weight', 600).text(sp.label);
+  });
+
+  const legX = W - m.r + 18, legY = m.t + 10, legW = 14, legH = H - m.b - m.t - 20;
+  const defs = svg.append('defs');
+  const grad = defs.append('linearGradient').attr('id', 'mcGrad')
+    .attr('x1', '0%').attr('y1', '100%').attr('x2', '0%').attr('y2', '0%');
+  d3.range(0, 1.01, 0.1).forEach(t => {
+    grad.append('stop').attr('offset', (t * 100) + '%')
+      .attr('stop-color', color(sharpeExt[0] + t * (sharpeExt[1] - sharpeExt[0])));
+  });
+  svg.append('rect').attr('x', legX).attr('y', legY).attr('width', legW).attr('height', legH)
+    .attr('fill', 'url(#mcGrad)').attr('stroke', '#bbb').attr('stroke-width', 0.5);
+  svg.append('text').attr('x', legX + legW / 2).attr('y', legY - 6)
+    .attr('text-anchor', 'middle').attr('font-size', 10).attr('fill', '#555')
+    .attr('font-weight', 600).text('Sharpe');
+  const legScale = d3.scaleLinear().domain(sharpeExt).range([legY + legH, legY]);
+  svg.append('g').attr('transform', `translate(${legX + legW},0)`)
+    .call(d3.axisRight(legScale).ticks(5).tickFormat(d => d.toFixed(2)).tickSize(4))
+    .call(g => g.select('.domain').remove())
+    .call(g => g.selectAll('text').attr('font-size', 9).attr('fill', '#666'));
+
+  const hoverRing = svg.append('circle').style('display', 'none')
+    .attr('r', 6).attr('fill', 'none').attr('stroke', '#2563eb').attr('stroke-width', 2);
+
+  const hoverRect = svg.append('rect')
+    .attr('x', m.l).attr('y', m.t).attr('width', W - m.r - m.l).attr('height', H - m.b - m.t)
+    .attr('fill', 'transparent').style('cursor', 'crosshair');
+
+  function attachHover() {
+    hoverRect.on('mousemove', function(e) {
+      const [mx, my] = d3.pointer(e, svg.node());
+      let best = -1, bestDist = 64;
+      for (let i = 0; i < cloud.length; i++) {
+        const d = cloud[i];
+        const dx = x(d.vol * 100) - mx, dy = y(d.ret * 100) - my;
+        const dist = dx * dx + dy * dy;
+        if (dist < bestDist) { bestDist = dist; best = i; }
+      }
+      if (best >= 0) {
+        const d = cloud[best];
+        hoverRing.attr('cx', x(d.vol * 100)).attr('cy', y(d.ret * 100)).style('display', null);
+        showTooltip(
+          `<b>Random portfolio</b><br>Return: ${(d.ret*100).toFixed(1)}%<br>Vol: ${(d.vol*100).toFixed(1)}%<br>Sharpe: ${d.sharpe.toFixed(2)}${weightBarsHtml(d.w, tickers)}`,
+          e);
+      } else {
+        hoverRing.style('display', 'none');
+        hideTooltip();
+      }
+    }).on('mouseleave', () => { hoverRing.style('display', 'none'); hideTooltip(); });
+  }
+
+  if (!animate) {
+    for (const d of cloud) drawPoint(d);
+    let bi = 0;
+    for (let i = 1; i < cloud.length; i++) if (cloud[i].sharpe > cloud[bi].sharpe) bi = i;
+    const b = cloud[bi];
+    bestG.style('display', null)
+      .attr('transform', `translate(${x(b.vol*100)},${y(b.ret*100)})`);
+    bestLabel.text(`★ Best Sharpe ${b.sharpe.toFixed(2)}`);
+    pulseBest();
+    counterText.text(`${N.toLocaleString()} portfolios · uniform Dirichlet weights`);
+    attachHover();
+    return;
+  }
+
+  frontierPath.style('opacity', 0);
+  specialsG.style('opacity', 0);
+
+  const DURATION = 2600;
+  const start = performance.now();
+  let drawn = 0;
+  let bestIdx = -1;
+
+  function step(now) {
+    const t = Math.min(1, (now - start) / DURATION);
+    const target = Math.floor(d3.easeCubicOut(t) * cloud.length);
+    for (let i = drawn; i < target; i++) {
+      drawPoint(cloud[i]);
+      if (bestIdx < 0 || cloud[i].sharpe > cloud[bestIdx].sharpe) bestIdx = i;
+    }
+    drawn = target;
+    counterText.text(`${drawn.toLocaleString()} / ${N.toLocaleString()} portfolios sampled`);
+    if (bestIdx >= 0) {
+      const b = cloud[bestIdx];
+      bestG.style('display', null)
+        .transition().duration(220).ease(d3.easeCubicOut)
+        .attr('transform', `translate(${x(b.vol*100)},${y(b.ret*100)})`);
+      bestLabel.text(`★ Best Sharpe ${b.sharpe.toFixed(2)}`);
+    }
+    if (t < 1) {
+      requestAnimationFrame(step);
+    } else {
+      counterText.text(`${N.toLocaleString()} portfolios · uniform Dirichlet weights`);
+      pulseBest();
+      frontierPath.transition().delay(100).duration(600).style('opacity', 1)
+        .attrTween('stroke-dasharray', function() {
+          const len = this.getTotalLength();
+          return u => `${len * u},${len}`;
+        });
+      specialsG.transition().delay(700).duration(400).style('opacity', 1);
+      attachHover();
+    }
+  }
+  requestAnimationFrame(step);
 }
 
 function renderFrontier(tickers) {
