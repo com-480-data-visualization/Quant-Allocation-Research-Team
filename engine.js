@@ -25,7 +25,8 @@ const STATE = {
   covSample: null,
   covLW: null,
   covEWMA: null,
-  portfolios: {}
+  portfolios: {},
+  rollWin: 90
 };
 
 // ----- Helpers -----
@@ -506,6 +507,7 @@ function renderExplorer(tickers) {
   populateHistSelect(tickers);
   renderHistogram();
   renderCumulative(tickers);
+  renderRollingStats(tickers);
 }
 
 function renderKPIs(tickers) {
@@ -724,6 +726,203 @@ function renderCumulative(tickers) {
     legendDiv.innerHTML += `<span class="legend-item"><span class="legend-swatch" style="background:${col(STATE.tickers.indexOf(t))}"></span>${t}</span>`;
   });
   wrap.appendChild(legendDiv);
+}
+
+// ----- Rolling statistics -----
+
+function rollingMean(vals, w) {
+  const out = new Array(vals.length).fill(null);
+  if (vals.length < w) return out;
+  let s = 0;
+  for (let i = 0; i < w; i++) s += vals[i];
+  out[w - 1] = s / w;
+  for (let i = w; i < vals.length; i++) {
+    s += vals[i] - vals[i - w];
+    out[i] = s / w;
+  }
+  return out;
+}
+
+function rollingStd(vals, w) {
+  const out = new Array(vals.length).fill(null);
+  if (vals.length < w) return out;
+  for (let i = w - 1; i < vals.length; i++) {
+    let s = 0;
+    for (let k = i - w + 1; k <= i; k++) s += vals[k];
+    const mu = s / w;
+    let v = 0;
+    for (let k = i - w + 1; k <= i; k++) v += (vals[k] - mu) ** 2;
+    out[i] = Math.sqrt(v / (w - 1));
+  }
+  return out;
+}
+
+function rollingCorr(a, b, w) {
+  const out = new Array(a.length).fill(null);
+  if (a.length < w) return out;
+  for (let i = w - 1; i < a.length; i++) {
+    let sa = 0, sb = 0;
+    for (let k = i - w + 1; k <= i; k++) { sa += a[k]; sb += b[k]; }
+    const ma = sa / w, mb = sb / w;
+    let cov = 0, va = 0, vb = 0;
+    for (let k = i - w + 1; k <= i; k++) {
+      const da = a[k] - ma, db = b[k] - mb;
+      cov += da * db; va += da * da; vb += db * db;
+    }
+    const denom = Math.sqrt(va * vb);
+    out[i] = denom > 1e-14 ? cov / denom : null;
+  }
+  return out;
+}
+
+function setRollWin(w, el) {
+  STATE.rollWin = w;
+  document.querySelectorAll('#rollWinGroup .win-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  if (!STATE.logRet) return;
+  const tickers = STATE.active || STATE.tickers;
+  renderRollingStats(tickers);
+}
+
+function renderRollingStats(tickers) {
+  const w = STATE.rollWin || 90;
+  document.getElementById('rollVolSub').textContent = `${w}d rolling · annualised`;
+  document.getElementById('rollSharpeSub').textContent = `${w}d rolling · annualised · rf = 0`;
+  renderRollVol(tickers, w);
+  renderRollSharpe(tickers, w);
+  populateRollCorrSelect(tickers);
+  renderRollCorr();
+}
+
+function drawRollingLines(container, dates, seriesArr, labels, opts) {
+  container.innerHTML = '';
+  const flat = seriesArr.flat().filter(v => v != null && !isNaN(v));
+  if (!flat.length) {
+    container.innerHTML = `<div class="empty">Window (${opts.win}d) exceeds available observations (${dates.length})</div>`;
+    return;
+  }
+
+  const W = container.clientWidth, H = 280;
+  const m = { t: 15, r: 15, b: 35, l: 55 };
+  const svg = d3.select(container).append('svg').attr('class', 'chart').attr('viewBox', `0 0 ${W} ${H}`);
+
+  let firstValid = dates.length;
+  for (const s of seriesArr) {
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] != null && !isNaN(s[i])) { if (i < firstValid) firstValid = i; break; }
+    }
+  }
+  const xStart = firstValid < dates.length ? dates[firstValid] : dates[0];
+  const x = d3.scaleTime().domain([xStart, dates[dates.length - 1]]).range([m.l, W - m.r]);
+  let yDom = opts.yDomain;
+  if (!yDom) {
+    const [lo, hi] = d3.extent(flat);
+    const pad = (hi - lo) * 0.08 || Math.max(Math.abs(hi), 1) * 0.1;
+    yDom = [lo - pad, hi + pad];
+    if (opts.clipZero) yDom[0] = Math.max(yDom[0], 0);
+  }
+  const y = d3.scaleLinear().domain(yDom).range([H - m.b, m.t]);
+
+  svg.append('g').attr('transform', `translate(0,${H - m.b})`)
+    .call(d3.axisBottom(x).ticks(6))
+    .call(g => g.select('.domain').remove());
+  svg.append('g').attr('transform', `translate(${m.l},0)`)
+    .call(d3.axisLeft(y).ticks(6).tickFormat(opts.yFmt))
+    .call(g => g.select('.domain').remove());
+  svg.append('text').attr('transform', 'rotate(-90)').attr('x', -H / 2).attr('y', 14)
+    .attr('text-anchor', 'middle').attr('font-size', 11).attr('fill', '#888').text(opts.yLabel);
+
+  if (opts.refLines) {
+    opts.refLines.forEach(v => {
+      if (v >= yDom[0] && v <= yDom[1]) {
+        svg.append('line').attr('x1', m.l).attr('x2', W - m.r)
+          .attr('y1', y(v)).attr('y2', y(v))
+          .attr('stroke', v === 0 ? '#999' : '#ddd').attr('stroke-width', 1).attr('stroke-dasharray', '3,3');
+      }
+    });
+  }
+
+  const line = d3.line().defined(d => d.val != null && !isNaN(d.val))
+    .x(d => x(d.date)).y(d => y(d.val)).curve(d3.curveMonotoneX);
+
+  seriesArr.forEach((s, i) => {
+    const pts = s.map((v, k) => ({ date: dates[k], val: v }));
+    svg.append('path').datum(pts).attr('d', line)
+      .attr('fill', 'none').attr('stroke', col(STATE.tickers.indexOf(labels[i])))
+      .attr('stroke-width', 1.4).attr('stroke-opacity', 0.85);
+  });
+
+  const legendDiv = document.createElement('div');
+  legendDiv.className = 'legend-row';
+  labels.forEach(t => {
+    legendDiv.innerHTML += `<span class="legend-item"><span class="legend-swatch" style="background:${col(STATE.tickers.indexOf(t))}"></span>${t}</span>`;
+  });
+  container.appendChild(legendDiv);
+}
+
+function renderRollVol(tickers, w) {
+  const wrap = document.getElementById('rollVolWrap');
+  const dates = STATE.logRet.map(r => r.Date);
+  const series = tickers.map(t => {
+    const vals = STATE.logRet.map(r => r[t]);
+    const sd = rollingStd(vals, w);
+    return sd.map(v => v == null ? null : v * Math.sqrt(TRADING_DAYS) * 100);
+  });
+  drawRollingLines(wrap, dates, series, tickers, {
+    win: w, yFmt: d => d.toFixed(0) + '%', yLabel: 'Annualised Volatility', clipZero: true
+  });
+}
+
+function renderRollSharpe(tickers, w) {
+  const wrap = document.getElementById('rollSharpeWrap');
+  const dates = STATE.logRet.map(r => r.Date);
+  const series = tickers.map(t => {
+    const vals = STATE.logRet.map(r => r[t]);
+    const mu = rollingMean(vals, w);
+    const sd = rollingStd(vals, w);
+    return mu.map((m, i) => (m == null || sd[i] == null || sd[i] === 0)
+      ? null
+      : (m * Math.sqrt(TRADING_DAYS)) / sd[i]);
+  });
+  drawRollingLines(wrap, dates, series, tickers, {
+    win: w, yFmt: d => d.toFixed(1), yLabel: 'Sharpe', refLines: [0]
+  });
+}
+
+function populateRollCorrSelect(tickers) {
+  const sel = document.getElementById('rollCorrAnchor');
+  const prev = sel.value;
+  sel.innerHTML = '';
+  tickers.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t; opt.textContent = t;
+    sel.appendChild(opt);
+  });
+  sel.value = tickers.includes(prev) ? prev : tickers[0];
+}
+
+function renderRollCorr() {
+  const wrap = document.getElementById('rollCorrWrap');
+  if (!wrap || !STATE.logRet) return;
+  const tickers = STATE.active || STATE.tickers;
+  const anchor = document.getElementById('rollCorrAnchor').value;
+  if (!anchor || !tickers.includes(anchor)) { wrap.innerHTML = ''; return; }
+  const others = tickers.filter(t => t !== anchor);
+  if (!others.length) {
+    wrap.innerHTML = '<div class="empty">Select at least 2 assets</div>';
+    return;
+  }
+  const w = STATE.rollWin || 90;
+  const dates = STATE.logRet.map(r => r.Date);
+  const anchorVals = STATE.logRet.map(r => r[anchor]);
+  const series = others.map(t => {
+    const vals = STATE.logRet.map(r => r[t]);
+    return rollingCorr(anchorVals, vals, w);
+  });
+  drawRollingLines(wrap, dates, series, others, {
+    win: w, yFmt: d => d.toFixed(1), yLabel: `Correlation vs ${anchor}`,
+    yDomain: [-1, 1], refLines: [0]
+  });
 }
 
 // ===============================================

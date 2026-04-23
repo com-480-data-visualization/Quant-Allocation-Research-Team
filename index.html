@@ -107,6 +107,50 @@
           <div class="chart-wrap" id="cumulWrap"><div class="empty">Load data</div></div>
         </div>
       </div>
+
+      <div class="controls-inline" style="margin-top:24px">
+        <span class="control-label">Rolling Window:</span>
+        <div class="window-group" id="rollWinGroup">
+          <button class="win-btn" onclick="setRollWin(30,this)">30d</button>
+          <button class="win-btn" onclick="setRollWin(60,this)">60d</button>
+          <button class="win-btn active" onclick="setRollWin(90,this)">90d</button>
+          <button class="win-btn" onclick="setRollWin(252,this)">252d</button>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Rolling Volatility</span>
+            <span class="card-subtitle" id="rollVolSub">Annualised</span>
+          </div>
+          <div class="card-body">
+            <div class="chart-wrap" id="rollVolWrap"><div class="empty">Load data</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Rolling Sharpe</span>
+            <span class="card-subtitle" id="rollSharpeSub">Annualised &middot; rf = 0</span>
+          </div>
+          <div class="card-body">
+            <div class="chart-wrap" id="rollSharpeWrap"><div class="empty">Load data</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Rolling Pairwise Correlation</span>
+          <span class="card-subtitle">
+            vs.&nbsp;
+            <select id="rollCorrAnchor" class="inline-select" onchange="renderRollCorr()"></select>
+          </span>
+        </div>
+        <div class="card-body">
+          <div class="chart-wrap" id="rollCorrWrap"><div class="empty">Load data</div></div>
+        </div>
+      </div>
     </div>
 
     <!-- === PANEL 2 - RISK ESTIMATION === -->
