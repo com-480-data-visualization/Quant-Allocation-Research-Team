@@ -104,7 +104,7 @@ function addTicker() {
 
 function setWin(w, el) {
   STATE.window = w;
-  document.querySelectorAll('.win-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.controls-bar .win-btn').forEach(b => b.classList.remove('active'));
   el.classList.add('active');
   if (STATE.rawPrices) computeAndRender();
 }
@@ -119,7 +119,11 @@ async function loadData() {
   try {
     const raw = await d3.csv('data/prices.csv', d => {
       const row = { Date: d3.timeParse('%Y-%m-%d')(d.Date) };
-      STATE.tickers.forEach(t => { if (d[t] !== undefined) row[t] = +d[t]; });
+      for (const k in d) {
+        if (k === 'Date' || k === '') continue;
+        const v = +d[k];
+        if (!isNaN(v)) row[k] = v;
+      }
       return row;
     });
     STATE.rawPrices = raw;
@@ -326,11 +330,17 @@ function eigenvalues(A) {
       for (let j = i + 1; j < n; j++)
         if (Math.abs(M[i][j]) > maxOff) { maxOff = Math.abs(M[i][j]); p = i; q = j; }
     if (maxOff < 1e-12) break;
-    const theta = (M[q][q] - M[p][p]) / (2 * M[p][q]);
-    const t = Math.sign(theta) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+    const apq = M[p][q];
+    const diff = M[q][q] - M[p][p];
+    let t;
+    if (Math.abs(diff) < 1e-30 * Math.abs(apq)) {
+      t = apq >= 0 ? 1 : -1;
+    } else {
+      const theta = diff / (2 * apq);
+      t = (theta >= 0 ? 1 : -1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+    }
     const c = 1 / Math.sqrt(t * t + 1), s = t * c;
     const tau = s / (1 + c);
-    const app = M[p][p], aqq = M[q][q], apq = M[p][q];
     M[p][p] -= t * apq;
     M[q][q] += t * apq;
     M[p][q] = M[q][p] = 0;
@@ -362,7 +372,7 @@ function tangencyPortfolio(cov, mu, rf) {
   const excess = mu.map(m => m - rf);
   const w = matVecMul(inv, excess);
   const s = d3.sum(w);
-  if (Math.abs(s) < 1e-14) return null;
+  if (s <= 1e-14) return null;
   return w.map(v => v / s);
 }
 
@@ -697,14 +707,17 @@ function renderCumulative(tickers) {
   const W = wrap.clientWidth, H = 280;
   const m = { t: 15, r: 15, b: 35, l: 55 };
   const svg = d3.select(wrap).append('svg').attr('class', 'chart').attr('viewBox', `0 0 ${W} ${H}`);
-
+  const startDate = STATE.prices[0].Date;
   const series = tickers.map(t => {
     let cum = 0;
-    return STATE.logRet.map(r => { cum += r[t]; return { date: r.Date, val: Math.exp(cum) }; });
+    const path = [{ date: startDate, val: 1 }];
+    STATE.logRet.forEach(r => { cum += r[t]; path.push({ date: r.Date, val: Math.exp(cum) }); });
+    return path;
   });
 
   const x = d3.scaleTime()
-    .domain(d3.extent(STATE.logRet, r => r.Date)).range([m.l, W - m.r]);
+    .domain([startDate, STATE.logRet[STATE.logRet.length - 1].Date])
+    .range([m.l, W - m.r]);
   const allVals = series.flat().map(d => d.val);
   const y = d3.scaleLinear()
     .domain([d3.min(allVals) * .95, d3.max(allVals) * 1.05]).range([H - m.b, m.t]);
@@ -1422,40 +1435,58 @@ function renderStackedWeights(tickers) {
   const W = wrap.clientWidth, H = 320;
   const mg = { t: 15, r: 15, b: 50, l: 50 };
   const svg = d3.select(wrap).append('svg').attr('class', 'chart').attr('viewBox', `0 0 ${W} ${H}`);
-
   const x0 = d3.scaleBand().domain(available.map(m => m.label)).range([mg.l, W - mg.r]).padding(.25);
-  const y = d3.scaleLinear().domain([0, 1]).range([H - mg.b, mg.t]);
+  let posMax = 0, negMin = 0;
+  available.forEach(m => {
+    const w = STATE.portfolios[m.key];
+    let pos = 0, neg = 0;
+    w.forEach(v => { if (v > 0) pos += v; else neg += v; });
+    if (pos > posMax) posMax = pos;
+    if (neg < negMin) negMin = neg;
+  });
+  posMax = Math.max(posMax, 1);
+  const yDom = [Math.min(negMin * 1.05, 0), posMax * 1.05];
+  const y = d3.scaleLinear().domain(yDom).range([H - mg.b, mg.t]);
 
-  svg.append('g').attr('transform', `translate(0,${H - mg.b})`)
+  svg.append('g').attr('transform', `translate(0,${y(0)})`)
     .call(d3.axisBottom(x0)).call(g => g.select('.domain').remove());
   svg.append('g').attr('transform', `translate(${mg.l},0)`)
-    .call(d3.axisLeft(y).ticks(5).tickFormat(d3.format('.0%'))).call(g => g.select('.domain').remove());
+    .call(d3.axisLeft(y).ticks(6).tickFormat(d3.format('.0%')))
+    .call(g => g.select('.domain').remove());
+  svg.append('line')
+    .attr('x1', mg.l).attr('x2', W - mg.r)
+    .attr('y1', y(0)).attr('y2', y(0))
+    .attr('stroke', '#999').attr('stroke-width', 1);
 
   available.forEach(method => {
     const weights = STATE.portfolios[method.key];
-    const absW = weights.map(v => Math.max(0, v));
-    const total = d3.sum(absW) || 1;
-    const normed = absW.map(v => v / total);
-
-    let cumY = 0;
+    let cumPos = 0, cumNeg = 0;
     tickers.forEach((t, i) => {
-      if (normed[i] < 0.005) { cumY += normed[i]; return; }
-      const barY = y(cumY + normed[i]);
-      const barH = y(cumY) - barY;
+      const v = weights[i];
+      if (Math.abs(v) < 0.005) return;
       const idx = STATE.tickers.indexOf(t);
+      let y0, y1;
+      if (v >= 0) { y0 = cumPos; y1 = cumPos + v; cumPos = y1; }
+      else        { y0 = cumNeg + v; y1 = cumNeg; cumNeg = y0; }
+      const barY = y(y1);
+      const barH = y(y0) - y(y1);
       svg.append('rect')
         .attr('x', x0(method.label)).attr('y', barY)
-        .attr('width', x0.bandwidth()).attr('height', barH)
-        .attr('fill', col(idx)).attr('fill-opacity', .85)
-        .on('mousemove', e => showTooltip(`<b>${method.label}</b><br>${t}: ${(weights[i]*100).toFixed(1)}%`, e))
+        .attr('width', x0.bandwidth()).attr('height', Math.max(0, barH))
+        .attr('fill', col(idx)).attr('fill-opacity', v >= 0 ? .85 : .55)
+        .attr('stroke', v >= 0 ? 'none' : '#dc2626')
+        .attr('stroke-width', v >= 0 ? 0 : 1)
+        .attr('stroke-dasharray', v >= 0 ? '0' : '3,2')
+        .on('mousemove', e => showTooltip(
+          `<b>${method.label}</b><br>${t}: ${(v*100).toFixed(1)}%${v < 0 ? ' (short)' : ''}`, e))
         .on('mouseleave', hideTooltip);
       if (barH > 14) {
         svg.append('text')
           .attr('x', x0(method.label) + x0.bandwidth() / 2).attr('y', barY + barH / 2 + 4)
-          .attr('text-anchor', 'middle').attr('font-size', 9).attr('fill', 'white').attr('font-weight', 600)
+          .attr('text-anchor', 'middle').attr('font-size', 9)
+          .attr('fill', v >= 0 ? 'white' : '#7f1d1d').attr('font-weight', 600)
           .text(t);
       }
-      cumY += normed[i];
     });
   });
 
