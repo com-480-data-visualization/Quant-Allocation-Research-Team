@@ -130,7 +130,7 @@
 
       <p class="hero-lead">
         Build, stress-test and visualize portfolios in real time.<br/>
-        Explore assets, estimate risk and trace the efficient frontier &mdash;
+        Explore assets, estimate risk and trace the efficient frontier,<br/>
         all in one interactive dashboard.
       </p>
 
@@ -410,7 +410,7 @@
 
       <div class="card">
         <div class="card-header">
-          <span class="card-title">Feasible Set — Monte Carlo</span>
+          <span class="card-title">Feasible Set - Monte Carlo</span>
           <span class="card-subtitle">
             <label class="toggle-label" style="margin-right:12px">
               <input type="checkbox" id="mcToggle" checked onchange="renderPortfolio()"> Enabled
@@ -436,7 +436,7 @@
             <span class="ix">(σ, μ)</span> and color it by Sharpe
             <span class="ix">(μ − r<sub>f</sub>)/σ</span>.
             <br>
-            <b>N</b> &nbsp;controls the number of random portfolios — bigger N gives a
+            <b>N</b> &nbsp;controls the number of random portfolios - bigger N gives a
             denser cloud that fills out the feasible region but costs more compute.
             <b>Resample</b> redraws a fresh batch with new random seeds (the cloud
             shape stays similar but the exact dots move).
@@ -520,7 +520,7 @@
       setTimeout(animateStats, 2400);
     });
 
-    // Smooth slide-down from hero to engine — one-way, hero is dismissed after
+    // Smooth slide-down from hero to engine - one-way, hero is dismissed after
     function enterEngine(e) {
       e.preventDefault();
       if (document.body.classList.contains('engine-active')) return;
@@ -549,7 +549,7 @@
 
           // Right when the scroll lands, the header is exactly at viewport top
           // (because targetY === parked-top and scrollY === targetY). Switch
-          // it back to fixed/sticky, snap scroll to 0, dismiss the hero — all
+          // it back to fixed/sticky, snap scroll to 0, dismiss the hero - all
           // in the same animation frame so there's no visual flash.
           setTimeout(() => {
             document.body.classList.remove('engine-transitioning');

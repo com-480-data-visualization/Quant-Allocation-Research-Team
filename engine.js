@@ -27,7 +27,7 @@ const STATE = {
   covEWMA: null,
   portfolios: {},
   rollWin: 90,
-  userWeights: null      // E4 — Custom Weight Playground (length = active tickers)
+  userWeights: null      // E4 - Custom Weight Playground (length = active tickers)
 };
 
 // ----- Helpers -----
@@ -144,7 +144,7 @@ function computeAndRender() {
   computeStats(tickers);
   computeCovariances(tickers);
   computePortfolios(tickers);
-  // Only render the currently visible panel — hidden panels have clientWidth=0
+  // Only render the currently visible panel - hidden panels have clientWidth=0
   // which would produce negative SVG dimensions. Other panels are rendered on tab switch.
   const active = document.querySelector('.panel.active')?.id || 'panel-explorer';
   if (active === 'panel-explorer')  renderExplorer(tickers);
@@ -643,7 +643,7 @@ function renderHeatmap(tickers) {
 function drawHeatmap(container, mat, labels, interpolator, domain, annotate) {
   const n = labels.length;
   const W = container.clientWidth;
-  if (W < 80) return;            // container not laid out yet — skip; will re-render on tab switch / resize
+  if (W < 80) return;            // container not laid out yet - skip; will re-render on tab switch / resize
   const cellSize = Math.min(Math.floor((W - 60) / n), 52);
   if (cellSize < 4) return;
   const mL = 48, mT = 10;
@@ -1196,7 +1196,7 @@ function renderPortfolio() {
 }
 
 // ===============================================
-//  E4 — Custom Weight Playground
+//  E4 - Custom Weight Playground
 // ===============================================
 
 function syncUserWeights(tickers) {
@@ -1217,7 +1217,7 @@ function copyPortfolio(key) {
   const src = STATE.portfolios[key];
   if (!src) return;
   const tickers = STATE.active || STATE.tickers;
-  // Long-only clip then renormalise — playground sliders are [0,1]
+  // Long-only clip then renormalise - playground sliders are [0,1]
   const w = src.map(v => Math.max(0, v));
   const s = d3.sum(w) || 1;
   STATE.userWeights = w.map(v => v / s);
@@ -1300,7 +1300,7 @@ function renderWeightPlayground(tickers, opts = {}) {
     }
     paint(STATE.userWeights[i]);
 
-    // Drag handler — uses d3.drag for a clean cross-browser experience
+    // Drag handler - uses d3.drag for a clean cross-browser experience
     // Throttle the frontier redraw so we get a live "You" point without lag
     const liveUpdate = (typeof _ !== 'undefined' ? _.throttle : (fn => fn))(
       () => renderFrontier(tickers), 80, { leading: true, trailing: true });
@@ -1408,7 +1408,7 @@ function drawUserMini(tickers) {
     .call(g => g.select('.domain').remove())
     .call(g => g.selectAll('text').attr('font-size', 9));
 
-  // Axis titles — y label rotated to the left of the y-axis (no overlap)
+  // Axis titles - y label rotated to the left of the y-axis (no overlap)
   svg.append('text').attr('x', (W + m.l - m.r) / 2).attr('y', H - 4)
     .attr('text-anchor', 'middle').attr('font-size', 10).attr('fill', '#64748b')
     .text('Volatility');
@@ -1436,7 +1436,7 @@ function drawUserMini(tickers) {
       .attr('r', 2.5).attr('fill', '#cbd5e1');
   });
 
-  // User portfolio point — pulses
+  // User portfolio point - pulses
   if (userSt) {
     const cx = x(userSt.vol * 100), cy = y(userSt.ret * 100);
     const halo = svg.append('circle').attr('cx', cx).attr('cy', cy)
@@ -1522,7 +1522,7 @@ function renderMonteCarlo(tickers) {
   wrap.innerHTML = '';
   const mcOn = document.getElementById('mcToggle').checked;
   if (!mcOn) {
-    wrap.innerHTML = '<div class="empty">Monte Carlo disabled — toggle to enable</div>';
+    wrap.innerHTML = '<div class="empty">Monte Carlo disabled - toggle to enable</div>';
     return;
   }
   if (wrap.clientWidth < 100) return;
@@ -1715,7 +1715,7 @@ function renderMonteCarlo(tickers) {
     hoverRect.on('mousemove', function(e) {
       const [mx, my] = d3.pointer(e, svg.node());
 
-      // 1) Best Sharpe star (top priority — biggest hit radius, ~14px)
+      // 1) Best Sharpe star (top priority - biggest hit radius, ~14px)
       if (bestIdx >= 0 && bestIdx < cloud.length) {
         const b = cloud[bestIdx];
         const bx = x(b.vol * 100), by = y(b.ret * 100);
@@ -1739,7 +1739,7 @@ function renderMonteCarlo(tickers) {
         }
       }
 
-      // 3) Random cloud portfolios — nearest-neighbor within ~8px
+      // 3) Random cloud portfolios - nearest-neighbor within ~8px
       let best = -1, bestDist = 64;
       for (let i = 0; i < cloud.length; i++) {
         const d = cloud[i];
@@ -1787,7 +1787,7 @@ function renderMonteCarlo(tickers) {
   function step(now) {
     // If a newer render started, abort this loop quietly
     if (myAnim !== MC_STATE.anim) return;
-    // Clamp t to [0,1] — defends against now < start (clock jitter) which would
+    // Clamp t to [0,1] - defends against now < start (clock jitter) which would
     // make d3.easeCubicOut(t) negative and produce a negative `drawn` counter.
     const t = Math.max(0, Math.min(1, (now - start) / DURATION));
     const target = Math.max(0, Math.min(cloud.length, Math.floor(d3.easeCubicOut(t) * cloud.length)));
@@ -1944,7 +1944,7 @@ function renderFrontier(tickers) {
       .attr('font-size', 9).attr('fill', sp.color).attr('font-weight', 600).text(sp.label);
   });
 
-  // Capital Market Line — draw across the whole visible plot area (clipped),
+  // Capital Market Line - draw across the whole visible plot area (clipped),
   // so it stays visible even when the tangency portfolio sits far off-chart.
   if (STATE.portfolios.tangency) {
     const tSt = portfolioStats(STATE.portfolios.tangency, mu, cov);
@@ -1971,10 +1971,10 @@ function renderFrontier(tickers) {
       .attr('x', W - m.r - 6).attr('y', m.t + 12)
       .attr('text-anchor', 'end').attr('font-size', 10)
       .attr('fill', '#dc2626').attr('font-style', 'italic')
-      .text('CML unavailable — risk-free rate exceeds attainable returns');
+      .text('CML unavailable - risk-free rate exceeds attainable returns');
   }
 
-  // User portfolio point (E4) — live updated by the Custom Weight Playground
+  // User portfolio point (E4) - live updated by the Custom Weight Playground
   if (STATE.userWeights && STATE.userWeights.length === tickers.length) {
     const uSt = userPortfolioStats(tickers);
     if (uSt && isFinite(uSt.vol) && isFinite(uSt.ret)) {

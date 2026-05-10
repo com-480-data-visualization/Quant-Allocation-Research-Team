@@ -100,7 +100,7 @@ header h1 {
 }
 
 /* =============================================
-   Hero section — locked to 100% viewport, no scroll
+   Hero section - locked to 100% viewport, no scroll
    ============================================= */
 .hero {
   position: relative;
@@ -412,7 +412,7 @@ header h1 {
   margin-right: 4px;
 }
 
-/* CTA wrapper — guarantees centering even with flex children */
+/* CTA wrapper - guarantees centering even with flex children */
 .hero-cta-wrap {
   display: flex;
   flex-direction: column;
@@ -423,7 +423,7 @@ header h1 {
   margin-top: 0;
 }
 
-/* Cascading chevrons above the CTA — pure visual cue, no text */
+/* Cascading chevrons above the CTA - pure visual cue, no text */
 .hero-chevrons {
   display: flex;
   flex-direction: column;
@@ -646,7 +646,7 @@ header h1 {
 }
 .hero-title .ch-space { width: 0.25em; }
 
-/* Each char inside .grad needs its own gradient — inline-block children
+/* Each char inside .grad needs its own gradient - inline-block children
    don't inherit the parent's background-clip:text fill */
 .hero-title .grad .ch {
   background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 50%, #f472b6 100%);
@@ -655,7 +655,7 @@ header h1 {
   -webkit-text-fill-color: transparent;
   text-shadow: 0 0 18px rgba(167,139,250,0.55);
 }
-/* Stagger each char — line 1 ~13 chars, line 2 ~16 */
+/* Stagger each char - line 1 ~13 chars, line 2 ~16 */
 .hero-title .line-1 .ch:nth-child(1)  { animation-delay: 0.55s; }
 .hero-title .line-1 .ch:nth-child(2)  { animation-delay: 0.60s; }
 .hero-title .line-1 .ch:nth-child(3)  { animation-delay: 0.65s; }
@@ -720,7 +720,7 @@ header h1 {
 /* =============================================
    Hero "warp out" transition (Start exploring)
    ============================================= */
-/* (legacy warp/collapse classes kept for the hero — currently we just dismiss it) */
+/* (legacy warp/collapse classes kept for the hero - currently we just dismiss it) */
 .hero {
   transform-origin: 50% 50%;
   transition:
@@ -744,7 +744,7 @@ header h1 {
   transition: height 0.5s ease, padding 0.5s ease, min-height 0.5s ease;
 }
 
-/* Hero is dismissed once the slide-down completes — user can't scroll back up */
+/* Hero is dismissed once the slide-down completes - user can't scroll back up */
 .hero.dismissed { display: none !important; }
 /* Inside the warping hero, kill expensive animations to keep things smooth */
 .hero.warping .hero-grid,
@@ -1127,12 +1127,12 @@ input[type="range"]::-webkit-slider-thumb {
   100% { background-position: 50% -40%, 85% 110%, 0% 0%; }
 }
 
-/* Header entrance — keep short (header is fixed, no transform on it) */
+/* Header entrance - keep short (header is fixed, no transform on it) */
 .brand-mark   { animation: pop-in 0.5s cubic-bezier(.2,.8,.2,1) both; }
 .brand-text   { animation: fade-in 0.5s ease-out 0.1s both; }
 .header-status{ animation: fade-in 0.5s ease-out 0.25s both; }
 
-/* Hero entrance cascade — title handled char-by-char above */
+/* Hero entrance cascade - title handled char-by-char above */
 .hero-pill     { animation: fade-up 0.6s ease-out 0.30s both; }
 .hero-lead     { animation: fade-up 0.6s ease-out 2.20s both; }
 .hero-stat:nth-child(1) { animation: fade-up 0.55s ease-out 2.30s both; }
@@ -1147,7 +1147,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* =============================================
    Lock the rest of the site until user clicks
-   "Start exploring" — body gets .engine-active
+   "Start exploring" - body gets .engine-active
    ============================================= */
 body:not(.engine-active) header,
 body:not(.engine-active) .tabs,
@@ -1164,11 +1164,11 @@ body:not(.engine-active) {
   overflow: hidden;
 }
 /* During the cinematic entrance scroll the header is absolute (parked above
-   the tabs), so we don't need to reserve top padding for it — drop padding-top
+   the tabs), so we don't need to reserve top padding for it - drop padding-top
    to 0 to avoid showing the body background through that 60px gap. The body
    default padding-top:60px is reinstated as soon as .engine-transitioning is
    removed, and at that exact moment the header has just become fixed at top:0
-   and covers those 60px perfectly — no body color ever flashes through. */
+   and covers those 60px perfectly - no body color ever flashes through. */
 body.engine-transitioning {
   padding-top: 0 !important;
 }
@@ -1184,7 +1184,7 @@ body:not(.engine-active) .hero {
 /* While the cinematic entrance scroll is playing, anchor the header directly
    above the tabs in document coordinates (set via JS as --header-park-top).
    This way it scrolls UP into view from the bottom of the viewport WITH the
-   engine — they read as one block. Once the scroll lands, JS removes
+   engine - they read as one block. Once the scroll lands, JS removes
    .engine-transitioning and the header snaps back to its fixed/sticky
    position at top:0 (same visual spot it was just at). */
 body.engine-transitioning header {
@@ -1217,7 +1217,7 @@ body.engine-active .main         { animation: reveal-up 0.5s ease-out 0.30s both
 .tabs         { animation: fade-down 0.5s ease-out 0.4s both; }
 .controls-bar { animation: fade-down 0.5s ease-out 0.5s both; }
 
-/* KPI cards — quick stagger, no long wait */
+/* KPI cards - quick stagger, no long wait */
 .kpi-card {
   transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
 }
@@ -1227,7 +1227,7 @@ body.engine-active .main         { animation: reveal-up 0.5s ease-out 0.30s both
   border-color: #c7d2fe;
 }
 
-/* Cards — hover lift only, no entrance delay */
+/* Cards - hover lift only, no entrance delay */
 .card {
   transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
 }
@@ -1268,7 +1268,7 @@ body.engine-active .main         { animation: reveal-up 0.5s ease-out 0.30s both
   100% { box-shadow: 0 0 0 0   rgba(34,197,94,0);    }
 }
 
-/* Panel switch animation — quick fade so content shows immediately */
+/* Panel switch animation - quick fade so content shows immediately */
 .panel.active { animation: fade-in 0.18s ease-out both; }
 
 /* =============================================
