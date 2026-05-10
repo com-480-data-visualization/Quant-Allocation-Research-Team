@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Portfolio Allocation Engine</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link rel="stylesheet" href="style.css" />
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chroma-js@2.4.2/chroma.min.js"></script>
@@ -524,27 +525,38 @@
       e.preventDefault();
       if (document.body.classList.contains('engine-active')) return;
 
-      // Reveal the locked content (header, ticker, tabs, controls, main)
+      // Add BOTH classes synchronously so the header never renders at top:0
+      // for even one frame (which caused the white flash on the hero). The
+      // CSS default `top: 100vh` parks it just above the tabs.
       document.body.classList.add('engine-active');
+      document.body.classList.add('engine-transitioning');
 
-      // Wait for layout to settle, then smooth-scroll down to the ticker.
+      // Wait for layout, then refine the park position with the exact tab
+      // offset (in case body padding or hero height differ from 100vh) and
+      // start the smooth scroll.
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           const hero    = document.querySelector('.hero');
           const tabs    = document.querySelector('.tabs');
-          const headerH = document.querySelector('header').offsetHeight || 60;
+          const headerEl = document.querySelector('header');
+          const headerH = headerEl.offsetHeight || 60;
           const targetY = tabs.offsetTop - headerH;
           const duration = 1200;
 
+          document.body.style.setProperty('--header-park-top', targetY + 'px');
+
           smoothScrollTo(targetY, duration);
 
-          // After the slide finishes, dismiss the hero so the user can't scroll
-          // back up to it. Snap scroll to 0 so the ticker sits flush under the
-          // fixed header.
+          // Right when the scroll lands, the header is exactly at viewport top
+          // (because targetY === parked-top and scrollY === targetY). Switch
+          // it back to fixed/sticky, snap scroll to 0, dismiss the hero — all
+          // in the same animation frame so there's no visual flash.
           setTimeout(() => {
+            document.body.classList.remove('engine-transitioning');
+            document.body.style.removeProperty('--header-park-top');
             hero.classList.add('dismissed');
             window.scrollTo(0, 0);
-          }, duration + 60);
+          }, duration + 30);
         });
       });
     }

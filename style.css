@@ -20,9 +20,7 @@ header {
   align-items: center;
   gap: 16px;
   background:
-    linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.85) 100%);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+    linear-gradient(180deg, #ffffff 0%, #fafbfd 100%);
   border-bottom: 1px solid #e5e7eb;
   box-shadow: 0 4px 16px -10px rgba(15,23,42,0.12);
 }
@@ -1157,13 +1155,22 @@ body:not(.engine-active) .controls-bar,
 body:not(.engine-active) .main {
   display: none !important;
 }
-/* While on the hero: no header, no scroll, hero locked to exactly 1 viewport */
+/* While on the hero: no header, no scroll, hero locked to exactly 1 viewport. */
 html:has(body:not(.engine-active)),
 body:not(.engine-active) {
   padding-top: 0;
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
+}
+/* During the cinematic entrance scroll the header is absolute (parked above
+   the tabs), so we don't need to reserve top padding for it — drop padding-top
+   to 0 to avoid showing the body background through that 60px gap. The body
+   default padding-top:60px is reinstated as soon as .engine-transitioning is
+   removed, and at that exact moment the header has just become fixed at top:0
+   and covers those 60px perfectly — no body color ever flashes through. */
+body.engine-transitioning {
+  padding-top: 0 !important;
 }
 body:not(.engine-active) .hero {
   height: 100vh;
@@ -1174,15 +1181,32 @@ body:not(.engine-active) .hero {
   overflow: hidden;
 }
 
-body.engine-active header        { animation: reveal-down 0.5s ease-out both; }
+/* While the cinematic entrance scroll is playing, anchor the header directly
+   above the tabs in document coordinates (set via JS as --header-park-top).
+   This way it scrolls UP into view from the bottom of the viewport WITH the
+   engine — they read as one block. Once the scroll lands, JS removes
+   .engine-transitioning and the header snaps back to its fixed/sticky
+   position at top:0 (same visual spot it was just at). */
+body.engine-transitioning header {
+  position: absolute !important;
+  /* Park position = just above the tabs (heroHeight − headerHeight). With
+     padding-top:0 during transition, this lands the header at viewport Y=0
+     once the scroll reaches its target. JS refines via --header-park-top. */
+  top: var(--header-park-top, calc(100vh - 60px)) !important;
+  /* Initially translated down 60px so the header sits *just below* the viewport
+     at scrollY=0 (invisible); the animation lifts it back up in sync with the
+     smooth-scroll easing so it rises into view from the bottom. Easing matches
+     the JS easeInOutCubic used by smoothScrollTo. */
+  animation: header-rise 1.2s cubic-bezier(0.645, 0.045, 0.355, 1) both;
+}
+@keyframes header-rise {
+  from { transform: translateY(60px); }
+  to   { transform: translateY(0); }
+}
+
 body.engine-active .tabs         { animation: reveal-up 0.5s ease-out 0.10s both; }
 body.engine-active .controls-bar { animation: reveal-up 0.5s ease-out 0.20s both; }
 body.engine-active .main         { animation: reveal-up 0.5s ease-out 0.30s both; }
-
-@keyframes reveal-down {
-  from { opacity: 0; transform: translateY(-12px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
 
 @keyframes reveal-up {
   from { opacity: 0; transform: translateY(14px); }
