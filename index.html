@@ -499,8 +499,15 @@
           const eased = 1 - Math.pow(1 - t, 3);
           const v = Math.round(target * eased);
           let txt;
-          if (format === 'k' && v >= 1000) txt = (v/1000).toFixed(v >= 10000 ? 0 : 1) + 'k';
-          else txt = v.toString();
+          if (format === 'k' && v >= 1000) {
+            const inK = v / 1000;
+            // Avoid the ugly "10.0k" intermediate frame: as soon as the
+            // 1-decimal value would round up to 10 or more, switch to integer k.
+            if (Math.round(inK * 10) / 10 >= 10) txt = Math.round(inK) + 'k';
+            else txt = inK.toFixed(1) + 'k';
+          } else {
+            txt = v.toString();
+          }
           el.textContent = txt + (t === 1 ? suffix : '');
           if (t < 1) requestAnimationFrame(tick);
         }
