@@ -102,12 +102,14 @@ header h1 {
 }
 
 /* =============================================
-   Hero section — futuristic, dark, scrolls
+   Hero section — locked to 100% viewport, no scroll
    ============================================= */
 .hero {
   position: relative;
-  padding: 80px 28px 90px;
-  min-height: calc(100vh - 60px); /* fill viewport below the fixed header */
+  padding: clamp(28px, 4vh, 56px) 28px clamp(28px, 4vh, 56px);
+  height: 100vh;             /* exact viewport height */
+  height: 100dvh;            /* mobile-safe fallback */
+  max-height: 100vh;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -214,6 +216,13 @@ header h1 {
   z-index: 2;
   max-width: 940px;
   margin: 0 auto;
+  width: 100%;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: clamp(10px, 1.4vh, 18px);
 }
 
 /* Pill */
@@ -221,7 +230,7 @@ header h1 {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 14px 6px 12px;
+  padding: 5px 14px 5px 12px;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 1.6px;
@@ -230,7 +239,7 @@ header h1 {
   background: rgba(37,99,235,0.10);
   border: 1px solid rgba(96,165,250,0.35);
   border-radius: 999px;
-  margin-bottom: 22px;
+  margin-bottom: 0;
   box-shadow: inset 0 0 12px rgba(37,99,235,0.20);
 }
 .hero-pill-dot {
@@ -243,12 +252,12 @@ header h1 {
 
 /* Title */
 .hero-title {
-  font-size: 64px;
+  font-size: clamp(34px, 5.6vw, 60px);
   font-weight: 800;
   line-height: 1.04;
   letter-spacing: -1.6px;
   color: #f8fafc;
-  margin-bottom: 22px;
+  margin-bottom: 0;
   text-shadow:
     0 0 30px rgba(99,102,241,0.30),
     0 0 60px rgba(99,102,241,0.18);
@@ -266,11 +275,11 @@ header h1 {
 
 /* Lead */
 .hero-lead {
-  font-size: 17px;
-  line-height: 1.65;
+  font-size: clamp(13.5px, 1.6vw, 16.5px);
+  line-height: 1.55;
   color: #94a3b8;
   max-width: 680px;
-  margin: 0 auto 40px;
+  margin: 0 auto;
   font-weight: 400;
 }
 
@@ -278,12 +287,13 @@ header h1 {
 .hero-stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
+  gap: 12px;
   max-width: 720px;
-  margin: 0 auto 40px;
+  width: 100%;
+  margin: 0 auto;
 }
 .hero-stat {
-  padding: 16px 12px;
+  padding: clamp(8px, 1.2vh, 14px) 10px;
   background: rgba(15,23,42,0.55);
   border: 1px solid rgba(99,102,241,0.22);
   border-radius: 12px;
@@ -296,7 +306,7 @@ header h1 {
   box-shadow: 0 0 20px rgba(99,102,241,0.30);
 }
 .hero-stat-num {
-  font-size: 30px;
+  font-size: clamp(20px, 2.6vw, 28px);
   font-weight: 800;
   line-height: 1;
   background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
@@ -304,12 +314,12 @@ header h1 {
   background-clip: text;
   -webkit-text-fill-color: transparent;
   letter-spacing: -1px;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 .hero-stat-lbl {
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.6px;
+  letter-spacing: 0.5px;
   text-transform: uppercase;
   color: #94a3b8;
 }
@@ -318,15 +328,16 @@ header h1 {
 .hero-features {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 14px;
-  margin-bottom: 36px;
+  gap: 12px;
+  width: 100%;
+  margin-bottom: 0;
 }
 .hero-feat {
   position: relative;
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 18px;
+  gap: 10px;
+  padding: clamp(10px, 1.6vh, 16px);
   background: rgba(15,23,42,0.6);
   backdrop-filter: blur(10px);
   border: 1px solid rgba(99,102,241,0.22);
@@ -361,7 +372,7 @@ header h1 {
 
 .hero-feat-icon {
   flex-shrink: 0;
-  width: 38px; height: 38px;
+  width: 34px; height: 34px;
   border-radius: 10px;
   background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
   color: white;
@@ -375,20 +386,20 @@ header h1 {
     0 4px 14px rgba(37,99,235,0.55),
     0 0 0 1px rgba(255,255,255,0.06) inset;
 }
-.hero-feat-title { font-size: 14.5px; font-weight: 700; color: #f1f5f9; margin-bottom: 3px; }
-.hero-feat-desc  { font-size: 12.5px; color: #94a3b8; line-height: 1.5; }
+.hero-feat-title { font-size: 13.5px; font-weight: 700; color: #f1f5f9; margin-bottom: 2px; }
+.hero-feat-desc  { font-size: 11.5px; color: #94a3b8; line-height: 1.45; }
 
 /* Team pill */
 .hero-team {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 18px;
+  padding: 6px 16px;
   background: rgba(15,23,42,0.55);
   backdrop-filter: blur(10px);
   border: 1px solid rgba(99,102,241,0.30);
   border-radius: 999px;
-  margin-bottom: 32px;
+  margin-bottom: 0;
   flex-wrap: wrap;
   justify-content: center;
 }
@@ -409,9 +420,9 @@ header h1 {
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  gap: 14px;
+  gap: 8px;
   width: 100%;
-  margin-top: 4px;
+  margin-top: 0;
 }
 
 /* Cascading chevrons above the CTA — pure visual cue, no text */
@@ -419,9 +430,9 @@ header h1 {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  height: 38px;
-  margin-bottom: -6px;
+  gap: 3px;
+  height: 28px;
+  margin-bottom: -4px;
 }
 .hero-chevrons .chev {
   width: 18px;
@@ -468,8 +479,8 @@ header h1 {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 30px;
-  font-size: 14px;
+  padding: 12px 26px;
+  font-size: 13.5px;
   font-weight: 700;
   letter-spacing: 0.4px;
   color: white;
@@ -746,11 +757,15 @@ header h1 {
 }
 
 @media (max-width: 760px) {
-  .hero { padding: 60px 22px 70px; }
-  .hero-title { font-size: 42px; }
-  .hero-lead  { font-size: 15px; }
+  .hero { padding: clamp(20px, 3vh, 36px) 18px; }
   .hero-stats    { grid-template-columns: repeat(2, 1fr); }
-  .hero-features { grid-template-columns: 1fr; }
+  .hero-features { grid-template-columns: 1fr; gap: 8px; }
+  .hero-feat     { padding: 10px 12px; }
+  .hero-formulas { display: none; }
+}
+@media (max-height: 720px) {
+  .hero-features { display: none; }
+  .hero-formulas { display: none; }
 }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: #ccc; transition: background .3s; }
 .dot.ready   { background: #22c55e; }
@@ -975,6 +990,28 @@ svg.chart   { width: 100%; display: block; }
 
 .empty { text-align: center; padding: 40px 20px; color: #aaa; font-size: 13px; }
 
+.info-note {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: linear-gradient(180deg, rgba(99,102,241,0.05), rgba(99,102,241,0.02));
+  border: 1px solid rgba(99,102,241,0.18);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #475569;
+}
+.info-note b { color: #1e293b; }
+.info-note .ix {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  background: rgba(99,102,241,0.10);
+  color: #4338ca;
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.info-note sub { font-size: 9px; }
+
 /* -- Tables -- */
 .stats-table {
   width: 100%;
@@ -1120,9 +1157,22 @@ body:not(.engine-active) .controls-bar,
 body:not(.engine-active) .main {
   display: none !important;
 }
-/* While on the hero, no header → body needs no padding-top, hero fills full screen */
-body:not(.engine-active) { padding-top: 0; }
-body:not(.engine-active) .hero { min-height: 100vh; }
+/* While on the hero: no header, no scroll, hero locked to exactly 1 viewport */
+html:has(body:not(.engine-active)),
+body:not(.engine-active) {
+  padding-top: 0;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+body:not(.engine-active) .hero {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  max-height: 100vh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
 
 body.engine-active header        { animation: reveal-down 0.5s ease-out both; }
 body.engine-active .tabs         { animation: reveal-up 0.5s ease-out 0.10s both; }
@@ -1196,6 +1246,134 @@ body.engine-active .main         { animation: reveal-up 0.5s ease-out 0.30s both
 
 /* Panel switch animation — quick fade so content shows immediately */
 .panel.active { animation: fade-in 0.18s ease-out both; }
+
+/* =============================================
+   Custom Weight Playground (E4)
+   ============================================= */
+.playground-wrap {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.1fr) minmax(260px, 1fr);
+  gap: 18px;
+}
+@media (max-width: 900px) {
+  .playground-wrap { grid-template-columns: 1fr; }
+}
+
+.weight-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.wslider {
+  display: grid;
+  grid-template-columns: 36px 1fr 56px;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.wslider-name {
+  font-weight: 700;
+  color: #334155;
+  letter-spacing: 0.2px;
+}
+.wslider-track {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: #eef2f7;
+  cursor: pointer;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+}
+.wslider-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 4px;
+  transition: background-color 0.25s ease;
+}
+.wslider-handle {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: white;
+  border: 2px solid currentColor;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 2px 6px rgba(15,23,42,0.15);
+  cursor: grab;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.wslider-handle:hover {
+  transform: translate(-50%, -50%) scale(1.2);
+  box-shadow: 0 3px 10px rgba(15,23,42,0.25);
+}
+.wslider-handle:active,
+.wslider-handle.dragging {
+  cursor: grabbing;
+  transform: translate(-50%, -50%) scale(1.15);
+}
+.wslider-val {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: #0f172a;
+  text-align: right;
+}
+
+.playground-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.playground-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.playground-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.playground-stat-lbl {
+  font-size: 9.5px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #64748b;
+  font-weight: 700;
+}
+.playground-stat-val {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+.playground-stat-val.warn { color: #d97706; }
+.playground-stat-val.bad  { color: #dc2626; }
+
+/* Brush styling on cumulative chart */
+.cumul-brush .selection {
+  fill: rgba(37,99,235,0.10);
+  stroke: rgba(37,99,235,0.55);
+  stroke-width: 1;
+}
+.cumul-brush .handle {
+  fill: rgba(37,99,235,0.65);
+}
+.cumul-brush-label {
+  font-size: 9.5px;
+  fill: #64748b;
+  font-weight: 600;
+}
+.cumul-context-line {
+  fill: none;
+  stroke-opacity: 0.55;
+  stroke-width: 1;
+}
 
 /* Respect users who prefer reduced motion */
 @media (prefers-reduced-motion: reduce) {

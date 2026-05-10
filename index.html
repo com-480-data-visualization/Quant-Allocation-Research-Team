@@ -4,8 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Portfolio Allocation Engine</title>
-  <link rel="stylesheet" href="style.css?v=16" />
+  <link rel="stylesheet" href="style.css" />
   <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chroma-js@2.4.2/chroma.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js"></script>
 </head>
 <body>
   <header>
@@ -203,9 +205,9 @@
     <span class="control-label" style="margin-left:8px">Window:</span>
     <div class="window-group">
       <button class="win-btn" onclick="setWin('1y',this)">1Y</button>
-      <button class="win-btn active" onclick="setWin('3y',this)">3Y</button>
+      <button class="win-btn" onclick="setWin('3y',this)">3Y</button>
       <button class="win-btn" onclick="setWin('5y',this)">5Y</button>
-      <button class="win-btn" onclick="setWin('max',this)">Max</button>
+      <button class="win-btn active" onclick="setWin('max',this)">Max</button>
     </div>
     <button class="btn-load" id="loadBtn" onclick="loadData()">&#9662; Load Data</button>
   </div>
@@ -424,6 +426,50 @@
         </div>
         <div class="card-body">
           <div class="chart-wrap" id="mcWrap"><div class="empty">Load data</div></div>
+          <div class="info-note">
+            <b>How it works.</b> We sample
+            <span class="ix">N</span> long-only portfolios with weights drawn from a
+            uniform <span class="ix">Dirichlet(1,…,1)</span> distribution
+            (i.e. every long-only allocation summing to 100% is equally likely).
+            For each one we plot
+            <span class="ix">(σ, μ)</span> and color it by Sharpe
+            <span class="ix">(μ − r<sub>f</sub>)/σ</span>.
+            <br>
+            <b>N</b> &nbsp;controls the number of random portfolios — bigger N gives a
+            denser cloud that fills out the feasible region but costs more compute.
+            <b>Resample</b> redraws a fresh batch with new random seeds (the cloud
+            shape stays similar but the exact dots move).
+            The black curve is the <b>efficient frontier</b> (the upper-left boundary
+            of the cloud); the colored dots are the closed-form special portfolios
+            (Min Var, Tangency, Mean-Var, Risk Parity); the gold ★ marks the
+            highest-Sharpe random sample. Hover anything for details.
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Custom Weight Playground</span>
+          <span class="card-subtitle">
+            <button class="btn-small" onclick="resetUserWeights()" style="margin-right:8px">Reset</button>
+            <button class="btn-small" onclick="copyPortfolio('minvar')" style="margin-right:4px">From Min Var</button>
+            <button class="btn-small" onclick="copyPortfolio('tangency')" style="margin-right:4px">From Tangency</button>
+            <button class="btn-small" onclick="copyPortfolio('riskparity')">From Risk Parity</button>
+          </span>
+        </div>
+        <div class="card-body">
+          <div class="playground-wrap">
+            <div id="weightSliders" class="weight-sliders"></div>
+            <div class="playground-side">
+              <div class="playground-stats">
+                <div><span class="playground-stat-lbl">Return</span><span id="userRet" class="playground-stat-val">-</span></div>
+                <div><span class="playground-stat-lbl">Volatility</span><span id="userVol" class="playground-stat-val">-</span></div>
+                <div><span class="playground-stat-lbl">Sharpe</span><span id="userSharpe" class="playground-stat-val">-</span></div>
+                <div><span class="playground-stat-lbl">Sum</span><span id="userSum" class="playground-stat-val">-</span></div>
+              </div>
+              <div class="chart-wrap" id="userMiniWrap"><div class="empty">Load data</div></div>
+            </div>
+          </div>
         </div>
       </div>
 

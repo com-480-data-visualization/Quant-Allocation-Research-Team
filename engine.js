@@ -14,7 +14,7 @@ const col = i => COLORS[i % COLORS.length];
 const STATE = {
   tickers: ['AAPL','MSFT','GOOGL','JPM','JNJ','SPY','QQQ','GLD','TLT'],
   active: null,
-  window: '3y',
+  window: 'max',
   rawPrices: null,
   prices: null,
   logRet: null,
@@ -26,7 +26,8 @@ const STATE = {
   covLW: null,
   covEWMA: null,
   portfolios: {},
-  rollWin: 90
+  rollWin: 90,
+  userWeights: null      // E4 — Custom Weight Playground (length = active tickers)
 };
 
 // ----- Helpers -----
@@ -143,9 +144,12 @@ function computeAndRender() {
   computeStats(tickers);
   computeCovariances(tickers);
   computePortfolios(tickers);
-  renderExplorer(tickers);
-  renderRisk();
-  renderPortfolio();
+  // Only render the currently visible panel — hidden panels have clientWidth=0
+  // which would produce negative SVG dimensions. Other panels are rendered on tab switch.
+  const active = document.querySelector('.panel.active')?.id || 'panel-explorer';
+  if (active === 'panel-explorer')  renderExplorer(tickers);
+  if (active === 'panel-risk')      renderRisk();
+  if (active === 'panel-portfolio') renderPortfolio();
 }
 
 function filterPrices(tickers) {
@@ -379,16 +383,23 @@ function tangencyPortfolio(cov, mu, rf) {
 function riskParityPortfolio(cov) {
   const n = cov.length;
   let w = new Array(n).fill(1 / n);
+  let last = w.slice();
   for (let iter = 0; iter < 500; iter++) {
     const sigma_w = matVecMul(cov, w);
-    const portVol = Math.sqrt(dot(w, sigma_w));
+    const portVol = Math.sqrt(Math.max(1e-18, dot(w, sigma_w)));
     const mrc = sigma_w.map(s => s / portVol);
     const rc = w.map((wi, i) => wi * mrc[i]);
     const target = portVol / n;
-    const newW = w.map((wi, i) => wi * target / (rc[i] || 1e-10));
+    const newW = w.map((wi, i) => {
+      const safeRc = Math.max(rc[i], 1e-10);
+      return Math.max(0, wi * target / safeRc);
+    });
     const s = d3.sum(newW);
+    if (!isFinite(s) || s <= 0) return last;
+    last = w;
     w = newW.map(v => v / s);
   }
+  if (w.some(v => !isFinite(v))) return new Array(n).fill(1 / n);
   return w;
 }
 
@@ -520,21 +531,44 @@ function renderExplorer(tickers) {
   renderRollingStats(tickers);
 }
 
+function tweenNumber(el, from, to, duration, formatter) {
+  const i = d3.interpolateNumber(from, to);
+  const start = performance.now();
+  function step(now) {
+    const tt = Math.min(1, (now - start) / duration);
+    const eased = d3.easeCubicOut(tt);
+    el.textContent = formatter(i(eased));
+    if (tt < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
 function renderKPIs(tickers) {
   const best = tickers.reduce((a, b) => STATE.sharpe[a] > STATE.sharpe[b] ? a : b);
-  document.getElementById('kpi-n').textContent = tickers.length;
-  document.getElementById('kpi-obs').textContent = STATE.logRet.length.toLocaleString();
+  const elN = document.getElementById('kpi-n');
+  const elObs = document.getElementById('kpi-obs');
+  const elSharpe = document.getElementById('kpi-sharpe');
+  const elBest = document.getElementById('kpi-best');
+
+  const prevN = parseFloat(elN.textContent.replace(/[^0-9.\-]/g, '')) || 0;
+  const prevObs = parseFloat(elObs.textContent.replace(/[^0-9.\-]/g, '')) || 0;
+  const prevSharpe = parseFloat(elSharpe.textContent) || 0;
+
+  tweenNumber(elN, prevN, tickers.length, 600, v => Math.round(v).toString());
+  tweenNumber(elObs, prevObs, STATE.logRet.length, 700, v => Math.round(v).toLocaleString());
+  tweenNumber(elSharpe, prevSharpe, STATE.sharpe[best], 700, v => v.toFixed(2));
+
   const d0 = STATE.prices[0].Date, d1 = STATE.prices[STATE.prices.length - 1].Date;
   document.getElementById('kpi-range').textContent =
     d3.timeFormat('%b %Y')(d0) + ' - ' + d3.timeFormat('%b %Y')(d1);
-  document.getElementById('kpi-sharpe').textContent = STATE.sharpe[best].toFixed(2);
-  document.getElementById('kpi-best').textContent = best;
+  elBest.textContent = best;
 }
 
 function renderScatter(tickers) {
   const wrap = document.getElementById('scatterWrap');
   wrap.innerHTML = '';
   const W = wrap.clientWidth, H = 320;
+  if (W < 100) return;
   const m = { t: 20, r: 20, b: 45, l: 55 };
   const svg = d3.select(wrap).append('svg').attr('class', 'chart')
     .attr('viewBox', `0 0 ${W} ${H}`);
@@ -609,7 +643,9 @@ function renderHeatmap(tickers) {
 function drawHeatmap(container, mat, labels, interpolator, domain, annotate) {
   const n = labels.length;
   const W = container.clientWidth;
+  if (W < 80) return;            // container not laid out yet — skip; will re-render on tab switch / resize
   const cellSize = Math.min(Math.floor((W - 60) / n), 52);
+  if (cellSize < 4) return;
   const mL = 48, mT = 10;
   const totalW = mL + n * cellSize;
   const totalH = mT + n * cellSize + 30;
@@ -617,23 +653,35 @@ function drawHeatmap(container, mat, labels, interpolator, domain, annotate) {
     .attr('viewBox', `0 0 ${totalW} ${totalH}`);
   const colorScale = d3.scaleSequential(interpolator).domain(domain);
 
+  // Use chroma.js to pick a luminance-aware text color for cells (better contrast than a fixed |v|>0.6 threshold)
+  const useChroma = typeof chroma !== 'undefined';
+  const textColor = (rgbStr) => {
+    if (!useChroma) return '#333';
+    try { return chroma(rgbStr).luminance() > 0.55 ? '#1f2937' : '#ffffff'; }
+    catch (e) { return '#333'; }
+  };
+
   for (let i = 0; i < n; i++) {
     for (let j = 0; j < n; j++) {
       const v = mat[i][j];
+      const fillCol = colorScale(v);
       const g = svg.append('g');
       g.append('rect')
         .attr('x', mL + j * cellSize).attr('y', mT + i * cellSize)
         .attr('width', cellSize - 1).attr('height', cellSize - 1)
-        .attr('rx', 2).attr('fill', colorScale(v))
+        .attr('rx', 2).attr('fill', fillCol).attr('opacity', 0)
         .on('mousemove', e => showTooltip(`${labels[i]} × ${labels[j]}: ${v.toFixed(3)}`, e))
-        .on('mouseleave', hideTooltip);
+        .on('mouseleave', hideTooltip)
+        .transition().duration(380).delay((i + j) * 22).ease(d3.easeCubicOut)
+        .attr('opacity', 1);
       if (annotate && cellSize >= 28) {
         g.append('text')
           .attr('x', mL + j * cellSize + cellSize / 2 - .5)
           .attr('y', mT + i * cellSize + cellSize / 2 + 3.5)
           .attr('text-anchor', 'middle').attr('font-size', cellSize > 38 ? 10 : 8)
-          .attr('fill', Math.abs(v) > 0.6 ? 'white' : '#333')
-          .text(v.toFixed(2));
+          .attr('fill', textColor(fillCol)).attr('opacity', 0)
+          .text(v.toFixed(2))
+          .transition().duration(300).delay((i + j) * 22 + 200).attr('opacity', 1);
       }
     }
     svg.append('text').attr('x', mL - 4).attr('y', mT + i * cellSize + cellSize / 2 + 3)
@@ -663,6 +711,7 @@ function renderHistogram() {
   if (!STATE.logRet || !t || t === '-') return;
   const vals = STATE.logRet.map(r => r[t]).filter(v => v != null);
   const W = wrap.clientWidth, H = 280;
+  if (W < 100) return;
   const m = { t: 15, r: 15, b: 40, l: 45 };
   const svg = d3.select(wrap).append('svg').attr('class', 'chart').attr('viewBox', `0 0 ${W} ${H}`);
 
@@ -677,14 +726,14 @@ function renderHistogram() {
 
   const idx = STATE.tickers.indexOf(t);
   svg.selectAll('.bar').data(bins).enter().append('rect')
-    .attr('x', d => x(d.x0) + .5).attr('y', y(0))
+    .attr('x', d => x(d.x0) + .5).attr('y', d => y(d.length))
     .attr('width', d => Math.max(0, x(d.x1) - x(d.x0) - 1))
-    .attr('height', 0)
-    .attr('fill', col(idx >= 0 ? idx : 0)).attr('fill-opacity', .6)
+    .attr('height', d => Math.max(0, y(0) - y(d.length)))
+    .attr('fill', col(idx >= 0 ? idx : 0)).attr('fill-opacity', 0)
     .on('mousemove', (e, d) => showTooltip(`${d.length} obs in [${(d.x0*100).toFixed(1)}%, ${(d.x1*100).toFixed(1)}%]`, e))
     .on('mouseleave', hideTooltip)
-    .transition().duration(500).delay((d, i) => i * 5)
-    .attr('y', d => y(d.length)).attr('height', d => y(0) - y(d.length));
+    .transition().duration(450).delay((d, i) => i * 5).ease(d3.easeCubicOut)
+    .attr('fill-opacity', 0.65);
 
   const mu = d3.mean(vals), sigma = d3.deviation(vals);
   const xVals = d3.range(x.domain()[0], x.domain()[1], (x.domain()[1] - x.domain()[0]) / 200);
@@ -704,10 +753,16 @@ function renderHistogram() {
 function renderCumulative(tickers) {
   const wrap = document.getElementById('cumulWrap');
   wrap.innerHTML = '';
-  const W = wrap.clientWidth, H = 280;
-  const m = { t: 15, r: 15, b: 35, l: 55 };
+  const W = wrap.clientWidth;
+  if (W < 100) return;
+  const H_main = 240, H_ctx = 56, GAP = 18;
+  const H = H_main + GAP + H_ctx + 28;
+  const m = { t: 15, r: 15, b: 24, l: 55 };
+  const ctxM = { t: 6, r: 15, b: 22, l: 55 };
   const svg = d3.select(wrap).append('svg').attr('class', 'chart').attr('viewBox', `0 0 ${W} ${H}`);
+
   const startDate = STATE.prices[0].Date;
+  const endDate = STATE.logRet[STATE.logRet.length - 1].Date;
   const series = tickers.map(t => {
     let cum = 0;
     const path = [{ date: startDate, val: 1 }];
@@ -715,23 +770,86 @@ function renderCumulative(tickers) {
     return path;
   });
 
-  const x = d3.scaleTime()
-    .domain([startDate, STATE.logRet[STATE.logRet.length - 1].Date])
-    .range([m.l, W - m.r]);
+  const xFull = d3.scaleTime().domain([startDate, endDate]).range([m.l, W - m.r]);
+  const x = d3.scaleTime().domain([startDate, endDate]).range([m.l, W - m.r]);
   const allVals = series.flat().map(d => d.val);
-  const y = d3.scaleLinear()
-    .domain([d3.min(allVals) * .95, d3.max(allVals) * 1.05]).range([H - m.b, m.t]);
+  const yFull = d3.scaleLinear().domain([d3.min(allVals) * .95, d3.max(allVals) * 1.05]).range([H_main - m.b, m.t]);
+  const y = d3.scaleLinear().domain(yFull.domain()).range([H_main - m.b, m.t]);
 
-  svg.append('g').attr('transform', `translate(0,${H - m.b})`).call(d3.axisBottom(x).ticks(6))
-    .call(g => g.select('.domain').remove());
-  svg.append('g').attr('transform', `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(5).tickFormat(d => '$' + d.toFixed(1)))
-    .call(g => g.select('.domain').remove());
+  // ---- Main chart ----
+  const mainG = svg.append('g').attr('class', 'cumul-main');
+  const xAxisG = mainG.append('g').attr('transform', `translate(0,${H_main - m.b})`);
+  const yAxisG = mainG.append('g').attr('transform', `translate(${m.l},0)`);
+  xAxisG.call(d3.axisBottom(x).ticks(6)).call(g => g.select('.domain').remove());
+  yAxisG.call(d3.axisLeft(y).ticks(5).tickFormat(d => '$' + d.toFixed(1))).call(g => g.select('.domain').remove());
+
+  // Clip path so brushed lines never escape the plot area
+  svg.append('defs').append('clipPath').attr('id', 'cumulClip')
+    .append('rect').attr('x', m.l).attr('y', m.t)
+    .attr('width', W - m.l - m.r).attr('height', H_main - m.t - m.b);
 
   const line = d3.line().x(d => x(d.date)).y(d => y(d.val)).curve(d3.curveMonotoneX);
-  series.forEach((s, i) => {
-    svg.append('path').datum(s).attr('d', line)
-      .attr('fill', 'none').attr('stroke', col(STATE.tickers.indexOf(tickers[i]))).attr('stroke-width', 1.5).attr('stroke-opacity', .85);
+  const linesG = mainG.append('g').attr('clip-path', 'url(#cumulClip)');
+  const linePaths = series.map((s, i) => {
+    const path = linesG.append('path').datum(s).attr('d', line)
+      .attr('fill', 'none').attr('stroke', col(STATE.tickers.indexOf(tickers[i])))
+      .attr('stroke-width', 1.6).attr('stroke-opacity', .9);
+    const len = path.node().getTotalLength();
+    path.attr('stroke-dasharray', len).attr('stroke-dashoffset', len)
+      .transition().duration(900).delay(i * 60).ease(d3.easeCubicOut)
+      .attr('stroke-dashoffset', 0)
+      .on('end', function() { d3.select(this).attr('stroke-dasharray', null); });
+    return path;
   });
+
+  // ---- Context (mini) chart with brush ----
+  const ctxTop = H_main + GAP;
+  const ctxX = d3.scaleTime().domain([startDate, endDate]).range([ctxM.l, W - ctxM.r]);
+  const ctxY = d3.scaleLinear().domain(yFull.domain()).range([ctxTop + H_ctx - ctxM.b, ctxTop + ctxM.t]);
+  const ctxG = svg.append('g').attr('class', 'cumul-ctx');
+  ctxG.append('g').attr('transform', `translate(0,${ctxTop + H_ctx - ctxM.b})`)
+    .call(d3.axisBottom(ctxX).ticks(6).tickSize(3)).call(g => g.select('.domain').remove())
+    .call(g => g.selectAll('text').attr('font-size', 9).attr('fill', '#94a3b8'));
+  ctxG.append('text').attr('x', ctxM.l).attr('y', ctxTop - 2)
+    .attr('class', 'cumul-brush-label').text('Drag to focus on a sub-period · double-click to reset');
+
+  const ctxLine = d3.line().x(d => ctxX(d.date)).y(d => ctxY(d.val)).curve(d3.curveMonotoneX);
+  series.forEach((s, i) => {
+    ctxG.append('path').datum(s).attr('d', ctxLine)
+      .attr('class', 'cumul-context-line')
+      .attr('stroke', col(STATE.tickers.indexOf(tickers[i])));
+  });
+
+  // ---- Brush ----
+  const brush = d3.brushX()
+    .extent([[ctxM.l, ctxTop + ctxM.t], [W - ctxM.r, ctxTop + H_ctx - ctxM.b]])
+    .on('brush end', brushed);
+  const brushG = ctxG.append('g').attr('class', 'cumul-brush').call(brush);
+
+  function brushed(event) {
+    if (event.sourceEvent && event.sourceEvent.type === 'zoom') return;
+    const sel = event.selection;
+    const newDomain = sel ? sel.map(ctxX.invert, ctxX) : [startDate, endDate];
+    x.domain(newDomain);
+
+    // Recompute y-domain for the visible window only
+    const t0 = newDomain[0], t1 = newDomain[1];
+    const visibleVals = [];
+    series.forEach(s => s.forEach(d => { if (d.date >= t0 && d.date <= t1) visibleVals.push(d.val); }));
+    if (visibleVals.length) {
+      const lo = d3.min(visibleVals), hi = d3.max(visibleVals);
+      y.domain([lo * 0.97, hi * 1.03]);
+    }
+
+    xAxisG.transition().duration(120).call(d3.axisBottom(x).ticks(6))
+      .call(g => g.select('.domain').remove());
+    yAxisG.transition().duration(120).call(d3.axisLeft(y).ticks(5).tickFormat(d => '$' + d.toFixed(1)))
+      .call(g => g.select('.domain').remove());
+    linePaths.forEach(p => p.attr('d', line));
+  }
+
+  // Double-click on context = reset
+  ctxG.on('dblclick', () => brushG.call(brush.move, null));
 
   const legendDiv = document.createElement('div');
   legendDiv.className = 'legend-row';
@@ -816,6 +934,7 @@ function drawRollingLines(container, dates, seriesArr, labels, opts) {
   }
 
   const W = container.clientWidth, H = 280;
+  if (W < 100) return;
   const m = { t: 15, r: 15, b: 35, l: 55 };
   const svg = d3.select(container).append('svg').attr('class', 'chart').attr('viewBox', `0 0 ${W} ${H}`);
 
@@ -992,9 +1111,12 @@ function renderRisk() {
 function renderEigenSpectrum(tickers, S, LW, EW) {
   const wrap = document.getElementById('eigenWrap');
   wrap.innerHTML = '';
-  const eigS = eigenvalues(S.map(r => [...r]));
-  const eigLW = eigenvalues(LW.map(r => [...r]));
-  const eigEW = eigenvalues(EW.map(r => [...r]));
+  if (wrap.clientWidth < 100) return;
+  // Clamp tiny numerical noise: covariance eigenvalues should be >= 0
+  const clamp0 = arr => arr.map(v => Math.max(0, v));
+  const eigS = clamp0(eigenvalues(S.map(r => [...r])));
+  const eigLW = clamp0(eigenvalues(LW.map(r => [...r])));
+  const eigEW = clamp0(eigenvalues(EW.map(r => [...r])));
 
   const W = wrap.clientWidth, H = 250;
   const m = { t: 15, r: 15, b: 40, l: 55 };
@@ -1017,11 +1139,14 @@ function renderEigenSpectrum(tickers, S, LW, EW) {
   const names = ['Sample', 'Ledoit-Wolf', 'EWMA'];
   [eigS, eigLW, eigEW].forEach((eig, si) => {
     eig.forEach((v, i) => {
-      svg.append('rect').attr('x', x(i) + si * bw).attr('y', y(v))
-        .attr('width', bw - 1).attr('height', y(0) - y(v))
-        .attr('fill', colors[si]).attr('fill-opacity', .75)
+      const targetH = Math.max(0, y(0) - y(v));
+      svg.append('rect').attr('x', x(i) + si * bw).attr('y', y(0))
+        .attr('width', bw - 1).attr('height', 0)
+        .attr('fill', colors[si]).attr('fill-opacity', .8)
         .on('mousemove', e => showTooltip(`${names[si]} λ${i + 1}: ${v.toFixed(4)}`, e))
-        .on('mouseleave', hideTooltip);
+        .on('mouseleave', hideTooltip)
+        .transition().duration(550).delay(i * 30 + si * 80).ease(d3.easeCubicOut)
+        .attr('y', y(0) - targetH).attr('height', targetH);
     });
   });
 
@@ -1062,10 +1187,272 @@ function renderPortfolio() {
   if (!STATE.logRet) return;
   const tickers = STATE.active || STATE.tickers;
   computePortfolios(tickers);
+  syncUserWeights(tickers);
   renderFrontier(tickers);
   renderStackedWeights(tickers);
   renderMonteCarlo(tickers);
+  renderWeightPlayground(tickers);
   renderPortfolioComparison(tickers);
+}
+
+// ===============================================
+//  E4 — Custom Weight Playground
+// ===============================================
+
+function syncUserWeights(tickers) {
+  // Re-init or pad/trim user weights to match active tickers
+  if (!STATE.userWeights || STATE.userWeights.length !== tickers.length) {
+    STATE.userWeights = new Array(tickers.length).fill(1 / tickers.length);
+  }
+}
+
+function resetUserWeights() {
+  const tickers = STATE.active || STATE.tickers;
+  STATE.userWeights = new Array(tickers.length).fill(1 / tickers.length);
+  renderWeightPlayground(tickers);
+  renderFrontier(tickers);
+}
+
+function copyPortfolio(key) {
+  const src = STATE.portfolios[key];
+  if (!src) return;
+  const tickers = STATE.active || STATE.tickers;
+  // Long-only clip then renormalise — playground sliders are [0,1]
+  const w = src.map(v => Math.max(0, v));
+  const s = d3.sum(w) || 1;
+  STATE.userWeights = w.map(v => v / s);
+  renderWeightPlayground(tickers, { animate: true });
+  renderFrontier(tickers);
+}
+
+function setUserWeight(idx, value, tickers) {
+  // Lock-and-redistribute: when user drags slider idx to value v,
+  // the remaining (1 - v) is redistributed proportionally to the other sliders'
+  // *previous* weights. If others were all zero, distribute equally.
+  const w = [...STATE.userWeights];
+  const v = Math.max(0, Math.min(1, value));
+  const otherIdx = w.map((_, i) => i).filter(i => i !== idx);
+  const prevOthersSum = d3.sum(otherIdx.map(i => w[i]));
+  w[idx] = v;
+  if (otherIdx.length === 0) { STATE.userWeights = [1]; return; }
+  const remainder = 1 - v;
+  if (prevOthersSum > 1e-9) {
+    otherIdx.forEach(i => { w[i] = w[i] * remainder / prevOthersSum; });
+  } else {
+    otherIdx.forEach(i => { w[i] = remainder / otherIdx.length; });
+  }
+  STATE.userWeights = w;
+}
+
+function userPortfolioStats(tickers) {
+  const mu = STATE.portfolios.mu;
+  const cov = STATE.portfolios.cov;
+  if (!mu || !cov) return null;
+  const w = STATE.userWeights;
+  const ret = dot(w, mu);
+  const vol = Math.sqrt(dot(w, matVecMul(cov, w)));
+  const rf = STATE.portfolios.rf || 0;
+  return { ret, vol, sharpe: (ret - rf) / vol };
+}
+
+function renderWeightPlayground(tickers, opts = {}) {
+  const wrap = document.getElementById('weightSliders');
+  if (!wrap) return;
+  syncUserWeights(tickers);
+
+  // Use chroma.js to color slider fill from neutral → ticker color based on weight magnitude
+  const useChroma = typeof chroma !== 'undefined';
+
+  wrap.innerHTML = '';
+  tickers.forEach((t, i) => {
+    const cIdx = STATE.tickers.indexOf(t);
+    const baseCol = col(cIdx);
+    const row = document.createElement('div');
+    row.className = 'wslider';
+    row.innerHTML = `
+      <span class="wslider-name" style="color:${baseCol}">${t}</span>
+      <div class="wslider-track" data-idx="${i}">
+        <div class="wslider-fill"></div>
+        <div class="wslider-handle" style="color:${baseCol}"></div>
+      </div>
+      <span class="wslider-val" data-idx="${i}">0.0%</span>
+    `;
+    wrap.appendChild(row);
+
+    const track = row.querySelector('.wslider-track');
+    const fill = row.querySelector('.wslider-fill');
+    const handle = row.querySelector('.wslider-handle');
+    const val = row.querySelector('.wslider-val');
+
+    function paint(v) {
+      const pct = (v * 100).toFixed(1);
+      fill.style.width = (v * 100) + '%';
+      handle.style.left = (v * 100) + '%';
+      val.textContent = pct + '%';
+      if (useChroma) {
+        // Light grey at 0 → vivid at 1 (max weight reached if 100%)
+        const tCol = chroma.mix('#cbd5e1', baseCol, Math.min(1, v * 1.4), 'lab').css();
+        fill.style.background = tCol;
+      } else {
+        fill.style.background = baseCol;
+        fill.style.opacity = 0.35 + 0.6 * v;
+      }
+    }
+    paint(STATE.userWeights[i]);
+
+    // Drag handler — uses d3.drag for a clean cross-browser experience
+    // Throttle the frontier redraw so we get a live "You" point without lag
+    const liveUpdate = (typeof _ !== 'undefined' ? _.throttle : (fn => fn))(
+      () => renderFrontier(tickers), 80, { leading: true, trailing: true });
+    const dragHandler = d3.drag()
+      .on('start', () => handle.classList.add('dragging'))
+      .on('drag', (event) => {
+        const rect = track.getBoundingClientRect();
+        const v = Math.max(0, Math.min(1, (event.x) / rect.width));
+        setUserWeight(i, v, tickers);
+        // Repaint *all* sliders since they were redistributed
+        repaintAll();
+        liveUpdate();
+      })
+      .on('end', () => {
+        handle.classList.remove('dragging');
+        if (liveUpdate.flush) liveUpdate.flush();
+        renderFrontier(tickers);
+      });
+    d3.select(track).call(dragHandler);
+    // Click-to-set
+    track.addEventListener('click', (e) => {
+      if (handle.classList.contains('dragging')) return;
+      const rect = track.getBoundingClientRect();
+      const v = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      setUserWeight(i, v, tickers);
+      repaintAll();
+      renderFrontier(tickers);
+    });
+  });
+
+  function repaintAll() {
+    document.querySelectorAll('#weightSliders .wslider').forEach((row, i) => {
+      const baseCol = col(STATE.tickers.indexOf(tickers[i]));
+      const fill = row.querySelector('.wslider-fill');
+      const handle = row.querySelector('.wslider-handle');
+      const val = row.querySelector('.wslider-val');
+      const v = STATE.userWeights[i];
+      const pct = (v * 100).toFixed(1);
+      fill.style.width = (v * 100) + '%';
+      handle.style.left = (v * 100) + '%';
+      val.textContent = pct + '%';
+      if (useChroma) {
+        const tCol = chroma.mix('#cbd5e1', baseCol, Math.min(1, v * 1.4), 'lab').css();
+        fill.style.background = tCol;
+      } else {
+        fill.style.background = baseCol;
+        fill.style.opacity = 0.35 + 0.6 * v;
+      }
+    });
+    updateUserStats();
+    drawUserMini(tickers);
+  }
+
+  function updateUserStats() {
+    const st = userPortfolioStats(tickers);
+    const sumW = d3.sum(STATE.userWeights);
+    const fmt = (v, c) => v == null ? '-' : (v * 100).toFixed(1) + (c ? '%' : '');
+    if (st) {
+      document.getElementById('userRet').textContent = fmt(st.ret, true);
+      document.getElementById('userRet').className = 'playground-stat-val ' + (st.ret >= 0 ? '' : 'bad');
+      document.getElementById('userVol').textContent = fmt(st.vol, true);
+      document.getElementById('userSharpe').textContent = st.sharpe.toFixed(2);
+    }
+    const sumEl = document.getElementById('userSum');
+    sumEl.textContent = (sumW * 100).toFixed(1) + '%';
+    // Sliders should always sum to 100% by construction
+    const drift = Math.abs(sumW - 1);
+    sumEl.className = 'playground-stat-val ' + (drift > 0.01 ? 'warn' : '');
+  }
+
+  updateUserStats();
+  drawUserMini(tickers);
+}
+
+function drawUserMini(tickers) {
+  const wrap = document.getElementById('userMiniWrap');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  const frontier = STATE.portfolios.frontier;
+  if (!frontier || !frontier.length) {
+    wrap.innerHTML = '<div class="empty">Load data</div>';
+    return;
+  }
+
+  const W = wrap.clientWidth || 320, H = 230;
+  const m = { t: 22, r: 14, b: 36, l: 54 };
+  const svg = d3.select(wrap).append('svg').attr('class', 'chart').attr('viewBox', `0 0 ${W} ${H}`);
+
+  const userSt = userPortfolioStats(tickers);
+  const allVols = frontier.map(d => d.vol).concat(tickers.map(t => STATE.annVol[t]));
+  const allRets = frontier.map(d => d.ret).concat(tickers.map(t => STATE.annRet[t]));
+  if (userSt) { allVols.push(userSt.vol); allRets.push(userSt.ret); }
+
+  const x = d3.scaleLinear().domain([d3.min(allVols) * 0.85 * 100, d3.max(allVols) * 1.10 * 100])
+    .range([m.l, W - m.r]);
+  const y = d3.scaleLinear().domain([d3.min(allRets) * 100 - 1, d3.max(allRets) * 100 + 1])
+    .range([H - m.b, m.t]);
+
+  svg.append('g').attr('transform', `translate(0,${H - m.b})`)
+    .call(d3.axisBottom(x).ticks(5).tickFormat(d => d.toFixed(0) + '%'))
+    .call(g => g.select('.domain').remove())
+    .call(g => g.selectAll('text').attr('font-size', 9));
+  svg.append('g').attr('transform', `translate(${m.l},0)`)
+    .call(d3.axisLeft(y).ticks(5).tickFormat(d => d.toFixed(0) + '%'))
+    .call(g => g.select('.domain').remove())
+    .call(g => g.selectAll('text').attr('font-size', 9));
+
+  // Axis titles — y label rotated to the left of the y-axis (no overlap)
+  svg.append('text').attr('x', (W + m.l - m.r) / 2).attr('y', H - 4)
+    .attr('text-anchor', 'middle').attr('font-size', 10).attr('fill', '#64748b')
+    .text('Volatility');
+  svg.append('text')
+    .attr('transform', `translate(14, ${(H - m.b + m.t) / 2}) rotate(-90)`)
+    .attr('text-anchor', 'middle').attr('font-size', 10).attr('fill', '#64748b')
+    .text('Return');
+
+  // Frontier curve (dashed)
+  const line = d3.line().x(d => x(d.vol * 100)).y(d => y(d.ret * 100)).curve(d3.curveMonotoneX);
+  svg.append('path').datum(frontier).attr('d', line)
+    .attr('fill', 'none').attr('stroke', '#94a3b8').attr('stroke-width', 1.4)
+    .attr('stroke-dasharray', '3,3').attr('opacity', 0.85);
+
+  // Legend on top-right inside the plot area
+  const lg = svg.append('g').attr('transform', `translate(${W - m.r - 96}, ${m.t - 8})`);
+  lg.append('line').attr('x1', 0).attr('x2', 18).attr('y1', 0).attr('y2', 0)
+    .attr('stroke', '#94a3b8').attr('stroke-width', 1.4).attr('stroke-dasharray', '3,3');
+  lg.append('text').attr('x', 22).attr('y', 3)
+    .attr('font-size', 9).attr('fill', '#94a3b8').text('Efficient frontier');
+
+  // Asset points (greyed)
+  tickers.forEach(t => {
+    svg.append('circle').attr('cx', x(STATE.annVol[t] * 100)).attr('cy', y(STATE.annRet[t] * 100))
+      .attr('r', 2.5).attr('fill', '#cbd5e1');
+  });
+
+  // User portfolio point — pulses
+  if (userSt) {
+    const cx = x(userSt.vol * 100), cy = y(userSt.ret * 100);
+    const halo = svg.append('circle').attr('cx', cx).attr('cy', cy)
+      .attr('r', 6).attr('fill', 'none').attr('stroke', '#7c3aed').attr('stroke-width', 2).attr('stroke-opacity', 0.85);
+    function pulse() {
+      halo.attr('r', 6).attr('stroke-opacity', 0.85)
+        .transition().duration(1100).ease(d3.easeCubicOut)
+        .attr('r', 18).attr('stroke-opacity', 0).on('end', pulse);
+    }
+    pulse();
+    svg.append('circle').attr('cx', cx).attr('cy', cy)
+      .attr('r', 0).attr('fill', '#7c3aed').attr('stroke', 'white').attr('stroke-width', 2)
+      .transition().duration(450).ease(d3.easeBackOut.overshoot(1.4)).attr('r', 6);
+    svg.append('text').attr('x', cx + 9).attr('y', cy + 3)
+      .attr('font-size', 10).attr('font-weight', 700).attr('fill', '#7c3aed').text('You');
+  }
 }
 
 // ----- Monte Carlo feasible set -----
@@ -1094,7 +1481,7 @@ function monteCarloCloud(mu, cov, N, rf) {
 }
 
 let MC_SEED_BUMP = 0;
-const MC_STATE = { key: '', cloud: null };
+const MC_STATE = { key: '', cloud: null, rafId: null, anim: 0 };
 function resampleMc() { MC_SEED_BUMP++; MC_STATE.key = ''; renderPortfolio(); }
 
 function starPath(r) {
@@ -1124,12 +1511,21 @@ function weightBarsHtml(w, tickers) {
 
 function renderMonteCarlo(tickers) {
   const wrap = document.getElementById('mcWrap');
+  // Cancel any in-flight Monte Carlo animation from a previous render so we
+  // don't have two concurrent rAF loops fighting over the chart (which caused
+  // the counter going negative when you changed N or resampled rapidly).
+  if (MC_STATE.rafId !== null) {
+    cancelAnimationFrame(MC_STATE.rafId);
+    MC_STATE.rafId = null;
+  }
+  MC_STATE.anim++; // invalidate any stale closure
   wrap.innerHTML = '';
   const mcOn = document.getElementById('mcToggle').checked;
   if (!mcOn) {
     wrap.innerHTML = '<div class="empty">Monte Carlo disabled — toggle to enable</div>';
     return;
   }
+  if (wrap.clientWidth < 100) return;
   const mu = STATE.portfolios.mu;
   const cov = STATE.portfolios.cov;
   const rf = STATE.portfolios.rf;
@@ -1152,10 +1548,30 @@ function renderMonteCarlo(tickers) {
   const W = wrap.clientWidth, H = 400;
   const m = { t: 28, r: 120, b: 48, l: 60 };
 
-  const allVols = cloud.map(d => d.vol).concat(frontier.map(d => d.vol));
-  const allRets = cloud.map(d => d.ret).concat(frontier.map(d => d.ret));
-  const xDom = [d3.min(allVols) * 100 * 0.9, d3.max(allVols) * 100 * 1.05];
-  const yDom = [d3.min(allRets) * 100 - 1, d3.max(allRets) * 100 + 1];
+  // Robust axes: use cloud quantiles (not raw min/max) to avoid the chart
+  // shifting "way to the right" when a single Dirichlet draw lands on a very
+  // concentrated, high-vol portfolio. Frontier + asset positions are always
+  // included so they remain visible.
+  const cloudVols = cloud.map(d => d.vol).sort(d3.ascending);
+  const cloudRets = cloud.map(d => d.ret).sort(d3.ascending);
+  const q = (a, p) => d3.quantileSorted(a, p);
+  const assetVols = tickers.map(t => STATE.annVol[t]);
+  const assetRets = tickers.map(t => STATE.annRet[t]);
+  // Include specials so Risk Parity / Tangency / Min Var don't fall off the chart
+  const spVols = [], spRets = [];
+  ['minvar','tangency','riskparity','meanvar'].forEach(k => {
+    const w = STATE.portfolios[k];
+    if (!w) return;
+    const st = portfolioStats(w, mu, cov);
+    if (!st || !isFinite(st.vol) || !isFinite(st.ret)) return;
+    spVols.push(st.vol); spRets.push(st.ret);
+  });
+  const xMin = Math.min(d3.min(frontier, d => d.vol), d3.min(assetVols), q(cloudVols, 0.005), ...(spVols.length ? [d3.min(spVols)] : []));
+  const xMax = Math.max(d3.max(frontier, d => d.vol), d3.max(assetVols), q(cloudVols, 0.995), ...(spVols.length ? [d3.max(spVols)] : []));
+  const yMin = Math.min(d3.min(frontier, d => d.ret), d3.min(assetRets), q(cloudRets, 0.005), ...(spRets.length ? [d3.min(spRets)] : []));
+  const yMax = Math.max(d3.max(frontier, d => d.ret), d3.max(assetRets), q(cloudRets, 0.995), ...(spRets.length ? [d3.max(spRets)] : []));
+  const xDom = [Math.max(0, xMin * 0.9) * 100, xMax * 1.05 * 100];
+  const yDom = [yMin * 100 - 1, yMax * 100 + 1];
   const x = d3.scaleLinear().domain(xDom).range([m.l, W - m.r]);
   const y = d3.scaleLinear().domain(yDom).range([H - m.b, m.t]);
 
@@ -1226,22 +1642,46 @@ function renderMonteCarlo(tickers) {
     .attr('fill', 'none').attr('stroke', '#111').attr('stroke-width', 2).attr('stroke-opacity', 0.85);
 
   const specials = [
-    { key: 'minvar',     label: 'Min Var',     color: '#16a34a' },
-    { key: 'tangency',   label: 'Tangency',    color: '#dc2626' },
-    { key: 'riskparity', label: 'Risk Parity', color: '#d97706' },
+    { key: 'minvar',     label: 'Min Var',     color: '#16a34a', depends: 'covariance only' },
+    { key: 'tangency',   label: 'Tangency',    color: '#dc2626', depends: 'covariance, returns, risk-free rate' },
+    { key: 'meanvar',    label: 'Mean-Var',    color: '#7c3aed', depends: 'covariance, returns, target return' },
+    { key: 'riskparity', label: 'Risk Parity', color: '#d97706', depends: 'covariance only' },
   ];
+  const placedSpecials = specials
+    .map(sp => {
+      const w = STATE.portfolios[sp.key];
+      if (!w) return null;
+      const st = portfolioStats(w, mu, cov);
+      if (!st || !isFinite(st.vol) || !isFinite(st.ret)) return null;
+      return { ...sp, st, cx: x(st.vol * 100), cy: y(st.ret * 100) };
+    })
+    .filter(Boolean);
+
+  // Greedy label de-overlap (same logic as Frontier chart)
+  const spLabelPos = placedSpecials.map(p => ({ x: p.cx + 10, y: p.cy + 3 }));
+  for (let i = 0; i < spLabelPos.length; i++) {
+    for (let j = 0; j < i; j++) {
+      const dx = Math.abs(spLabelPos[i].x - spLabelPos[j].x);
+      const dy = Math.abs(spLabelPos[i].y - spLabelPos[j].y);
+      if (dx < 70 && dy < 14) {
+        spLabelPos[i].y = spLabelPos[j].y + (spLabelPos[i].y >= spLabelPos[j].y ? 14 : -14);
+      }
+    }
+  }
+
   const specialsG = svg.append('g').attr('class', 'mc-specials');
-  specials.forEach(sp => {
-    const w = STATE.portfolios[sp.key];
-    if (!w) return;
-    const st = portfolioStats(w, mu, cov);
-    const g = specialsG.append('g').attr('transform', `translate(${x(st.vol*100)},${y(st.ret*100)})`);
-    g.append('circle').attr('r', 6).attr('fill', sp.color)
+  placedSpecials.forEach((sp, i) => {
+    specialsG.append('circle').attr('cx', sp.cx).attr('cy', sp.cy)
+      .attr('r', 6).attr('fill', sp.color)
       .attr('stroke', 'white').attr('stroke-width', 2)
-      .on('mousemove', e => showTooltip(
-        `<b>${sp.label}</b><br>Return: ${(st.ret*100).toFixed(1)}%<br>Vol: ${(st.vol*100).toFixed(1)}%<br>Sharpe: ${st.sharpe.toFixed(2)}`, e))
-      .on('mouseleave', hideTooltip);
-    g.append('text').attr('x', 10).attr('y', 3).attr('font-size', 9)
+      .style('pointer-events', 'none');
+    const lp = spLabelPos[i];
+    if (Math.abs(lp.y - (sp.cy + 3)) > 1) {
+      specialsG.append('line').attr('x1', sp.cx + 7).attr('y1', sp.cy)
+        .attr('x2', lp.x - 1).attr('y2', lp.y - 3)
+        .attr('stroke', sp.color).attr('stroke-width', 1).attr('stroke-opacity', 0.5);
+    }
+    specialsG.append('text').attr('x', lp.x).attr('y', lp.y).attr('font-size', 9)
       .attr('fill', sp.color).attr('font-weight', 600).text(sp.label);
   });
 
@@ -1274,6 +1714,32 @@ function renderMonteCarlo(tickers) {
   function attachHover() {
     hoverRect.on('mousemove', function(e) {
       const [mx, my] = d3.pointer(e, svg.node());
+
+      // 1) Best Sharpe star (top priority — biggest hit radius, ~14px)
+      if (bestIdx >= 0 && bestIdx < cloud.length) {
+        const b = cloud[bestIdx];
+        const bx = x(b.vol * 100), by = y(b.ret * 100);
+        if ((bx - mx) ** 2 + (by - my) ** 2 < 14 * 14) {
+          hoverRing.attr('cx', bx).attr('cy', by).attr('stroke', '#fbbf24')
+            .style('display', null);
+          showTooltip(
+            `<b>★ Best Sharpe in cloud</b><br>Return: ${(b.ret*100).toFixed(1)}%<br>Vol: ${(b.vol*100).toFixed(1)}%<br>Sharpe: ${b.sharpe.toFixed(2)}${weightBarsHtml(b.w, tickers)}`, e);
+          return;
+        }
+      }
+
+      // 2) Special portfolios (Min Var / Tangency / Mean-Var / Risk Parity), 12px hit radius
+      for (const sp of placedSpecials) {
+        if ((sp.cx - mx) ** 2 + (sp.cy - my) ** 2 < 12 * 12) {
+          hoverRing.attr('cx', sp.cx).attr('cy', sp.cy).attr('stroke', sp.color)
+            .style('display', null);
+          showTooltip(
+            `<b>${sp.label}</b><br>Return: ${(sp.st.ret*100).toFixed(1)}%<br>Vol: ${(sp.st.vol*100).toFixed(1)}%<br>Sharpe: ${sp.st.sharpe.toFixed(2)}<br><span style="opacity:.65">Depends on: ${sp.depends}</span>`, e);
+          return;
+        }
+      }
+
+      // 3) Random cloud portfolios — nearest-neighbor within ~8px
       let best = -1, bestDist = 64;
       for (let i = 0; i < cloud.length; i++) {
         const d = cloud[i];
@@ -1283,7 +1749,8 @@ function renderMonteCarlo(tickers) {
       }
       if (best >= 0) {
         const d = cloud[best];
-        hoverRing.attr('cx', x(d.vol * 100)).attr('cy', y(d.ret * 100)).style('display', null);
+        hoverRing.attr('cx', x(d.vol * 100)).attr('cy', y(d.ret * 100))
+          .attr('stroke', '#2563eb').style('display', null);
         showTooltip(
           `<b>Random portfolio</b><br>Return: ${(d.ret*100).toFixed(1)}%<br>Vol: ${(d.vol*100).toFixed(1)}%<br>Sharpe: ${d.sharpe.toFixed(2)}${weightBarsHtml(d.w, tickers)}`,
           e);
@@ -1315,10 +1782,15 @@ function renderMonteCarlo(tickers) {
   const start = performance.now();
   let drawn = 0;
   let bestIdx = -1;
+  const myAnim = MC_STATE.anim;
 
   function step(now) {
-    const t = Math.min(1, (now - start) / DURATION);
-    const target = Math.floor(d3.easeCubicOut(t) * cloud.length);
+    // If a newer render started, abort this loop quietly
+    if (myAnim !== MC_STATE.anim) return;
+    // Clamp t to [0,1] — defends against now < start (clock jitter) which would
+    // make d3.easeCubicOut(t) negative and produce a negative `drawn` counter.
+    const t = Math.max(0, Math.min(1, (now - start) / DURATION));
+    const target = Math.max(0, Math.min(cloud.length, Math.floor(d3.easeCubicOut(t) * cloud.length)));
     for (let i = drawn; i < target; i++) {
       drawPoint(cloud[i]);
       if (bestIdx < 0 || cloud[i].sharpe > cloud[bestIdx].sharpe) bestIdx = i;
@@ -1333,8 +1805,9 @@ function renderMonteCarlo(tickers) {
       bestLabel.text(`★ Best Sharpe ${b.sharpe.toFixed(2)}`);
     }
     if (t < 1) {
-      requestAnimationFrame(step);
+      MC_STATE.rafId = requestAnimationFrame(step);
     } else {
+      MC_STATE.rafId = null;
       counterText.text(`${N.toLocaleString()} portfolios · uniform Dirichlet weights`);
       pulseBest();
       frontierPath.transition().delay(100).duration(600).style('opacity', 1)
@@ -1346,7 +1819,7 @@ function renderMonteCarlo(tickers) {
       attachHover();
     }
   }
-  requestAnimationFrame(step);
+  MC_STATE.rafId = requestAnimationFrame(step);
 }
 
 function renderFrontier(tickers) {
@@ -1356,14 +1829,48 @@ function renderFrontier(tickers) {
   if (!frontier.length) return;
 
   const W = wrap.clientWidth, H = 340;
+  if (W < 100) return;
   const m = { t: 20, r: 20, b: 45, l: 60 };
   const svg = d3.select(wrap).append('svg').attr('class', 'chart').attr('viewBox', `0 0 ${W} ${H}`);
 
+  // Clip-path so off-chart elements (e.g. CML at high rf) are clipped to the plot area
+  const clipId = 'frontier-clip-' + Math.floor(Math.random() * 1e9);
+  svg.append('defs').append('clipPath').attr('id', clipId)
+    .append('rect')
+    .attr('x', m.l).attr('y', m.t)
+    .attr('width', Math.max(0, W - m.l - m.r))
+    .attr('height', Math.max(0, H - m.t - m.b));
+
+  // Domain must include ALL plotted points: frontier curve, individual assets,
+  // every special portfolio (Mean-Var can sit far below MinVar; Risk Parity can
+  // sit far to the right), the user portfolio and the rf y-intercept of the CML.
+  const muP = STATE.portfolios.mu;
+  const covP = STATE.portfolios.cov;
+  const rfP  = STATE.portfolios.rf;
+  const domVols = frontier.map(d => d.vol).concat(tickers.map(t => STATE.annVol[t]));
+  const domRets = frontier.map(d => d.ret).concat(tickers.map(t => STATE.annRet[t]));
+  ['minvar', 'tangency', 'meanvar', 'riskparity'].forEach(k => {
+    const wK = STATE.portfolios[k];
+    if (!wK) return;
+    const stK = portfolioStats(wK, muP, covP);
+    if (!stK || !isFinite(stK.vol) || !isFinite(stK.ret)) return;
+    domVols.push(stK.vol); domRets.push(stK.ret);
+  });
+  if (STATE.userWeights && STATE.userWeights.length === tickers.length) {
+    const uSt0 = userPortfolioStats(tickers);
+    if (uSt0 && isFinite(uSt0.vol) && isFinite(uSt0.ret)) {
+      domVols.push(uSt0.vol); domRets.push(uSt0.ret);
+    }
+  }
+  if (isFinite(rfP)) domRets.push(rfP);
+
+  const vMin = d3.min(domVols), vMax = d3.max(domVols);
+  const rMin = d3.min(domRets), rMax = d3.max(domRets);
   const x = d3.scaleLinear()
-    .domain([d3.min(frontier, d => d.vol) * .85 * 100, d3.max(frontier, d => d.vol) * 1.15 * 100])
+    .domain([Math.max(0, vMin * 0.85) * 100, vMax * 1.15 * 100])
     .range([m.l, W - m.r]);
   const y = d3.scaleLinear()
-    .domain([d3.min(frontier, d => d.ret) * 100 - 1, d3.max(frontier, d => d.ret) * 100 + 1])
+    .domain([rMin * 100 - 2, rMax * 100 + 2])
     .range([H - m.b, m.t]);
 
   svg.append('g').attr('transform', `translate(0,${H - m.b})`).call(d3.axisBottom(x).ticks(6).tickFormat(d => d.toFixed(0) + '%'))
@@ -1391,32 +1898,104 @@ function renderFrontier(tickers) {
   const cov = STATE.portfolios.cov;
   const rf = STATE.portfolios.rf;
   const specials = [
-    { key: 'minvar', label: 'Min Var', color: '#16a34a' },
-    { key: 'tangency', label: 'Tangency', color: '#dc2626' },
-    { key: 'riskparity', label: 'Risk Parity', color: '#d97706' },
-    { key: 'meanvar', label: 'Mean-Var', color: '#7c3aed' },
+    { key: 'minvar',     label: 'Min Var',     color: '#16a34a', depends: 'covariance only' },
+    { key: 'tangency',   label: 'Tangency',    color: '#dc2626', depends: 'covariance, returns, risk-free rate' },
+    { key: 'meanvar',    label: 'Mean-Var',    color: '#7c3aed', depends: 'covariance, returns, target return' },
+    { key: 'riskparity', label: 'Risk Parity', color: '#d97706', depends: 'covariance only' },
   ];
 
-  specials.forEach(sp => {
-    const w = STATE.portfolios[sp.key];
-    if (!w) return;
-    const st = portfolioStats(w, mu, cov);
-    const cx = x(st.vol * 100), cy = y(st.ret * 100);
-    svg.append('circle').attr('cx', cx).attr('cy', cy)
+  // Pre-compute positions, then resolve label overlaps (vertical stagger)
+  const placed = specials
+    .map(sp => {
+      const w = STATE.portfolios[sp.key];
+      if (!w) return null;
+      const st = portfolioStats(w, mu, cov);
+      if (!st || !isFinite(st.vol) || !isFinite(st.ret)) return null;
+      return { ...sp, st, cx: x(st.vol * 100), cy: y(st.ret * 100) };
+    })
+    .filter(Boolean);
+
+  // Greedy label de-overlap: if two labels are within 14px in y AND 60px in x, push later ones
+  const labelPos = placed.map(p => ({ x: p.cx + 10, y: p.cy + 3 }));
+  for (let i = 0; i < labelPos.length; i++) {
+    for (let j = 0; j < i; j++) {
+      const dx = Math.abs(labelPos[i].x - labelPos[j].x);
+      const dy = Math.abs(labelPos[i].y - labelPos[j].y);
+      if (dx < 60 && dy < 14) {
+        labelPos[i].y = labelPos[j].y + (labelPos[i].y >= labelPos[j].y ? 14 : -14);
+      }
+    }
+  }
+
+  placed.forEach((sp, i) => {
+    svg.append('circle').attr('cx', sp.cx).attr('cy', sp.cy)
       .attr('r', 7).attr('fill', sp.color).attr('stroke', 'white').attr('stroke-width', 2)
       .on('mousemove', e => showTooltip(
-        `<b>${sp.label}</b><br>Return: ${(st.ret*100).toFixed(1)}%<br>Vol: ${(st.vol*100).toFixed(1)}%<br>Sharpe: ${st.sharpe.toFixed(2)}`, e))
+        `<b>${sp.label}</b><br>Return: ${(sp.st.ret*100).toFixed(1)}%<br>Vol: ${(sp.st.vol*100).toFixed(1)}%<br>Sharpe: ${sp.st.sharpe.toFixed(2)}<br><span style="opacity:.65">Depends on: ${sp.depends}</span>`, e))
       .on('mouseleave', hideTooltip);
-    svg.append('text').attr('x', cx + 10).attr('y', cy + 3)
+    // Connector line if label was pushed away from the dot
+    const lp = labelPos[i];
+    if (Math.abs(lp.y - (sp.cy + 3)) > 1) {
+      svg.append('line').attr('x1', sp.cx + 8).attr('y1', sp.cy)
+        .attr('x2', lp.x - 1).attr('y2', lp.y - 3)
+        .attr('stroke', sp.color).attr('stroke-width', 1).attr('stroke-opacity', .5);
+    }
+    svg.append('text').attr('x', lp.x).attr('y', lp.y)
       .attr('font-size', 9).attr('fill', sp.color).attr('font-weight', 600).text(sp.label);
   });
 
+  // Capital Market Line — draw across the whole visible plot area (clipped),
+  // so it stays visible even when the tangency portfolio sits far off-chart.
   if (STATE.portfolios.tangency) {
     const tSt = portfolioStats(STATE.portfolios.tangency, mu, cov);
-    svg.append('line')
-      .attr('x1', x(0)).attr('y1', y(rf * 100))
-      .attr('x2', x(tSt.vol * 200)).attr('y2', y((rf + (tSt.ret - rf) / tSt.vol * tSt.vol * 2) * 100))
-      .attr('stroke', '#dc2626').attr('stroke-width', 1).attr('stroke-dasharray', '5,4').attr('stroke-opacity', .5);
+    if (tSt && isFinite(tSt.vol) && tSt.vol > 1e-9 && isFinite(tSt.ret)) {
+      const slope = (tSt.ret - rf) / tSt.vol; // return per unit vol
+      const xDom = x.domain();
+      const v1 = 0;                           // vol = 0 → ret = rf (y-intercept)
+      const v2 = xDom[1] / 100 * 1.2;         // extend past visible right edge
+      const r1 = rf;
+      const r2 = rf + slope * v2;
+      svg.append('line')
+        .attr('clip-path', `url(#${clipId})`)
+        .attr('x1', x(v1 * 100)).attr('y1', y(r1 * 100))
+        .attr('x2', x(v2 * 100)).attr('y2', y(r2 * 100))
+        .attr('stroke', '#dc2626').attr('stroke-width', 1)
+        .attr('stroke-dasharray', '5,4').attr('stroke-opacity', .55)
+        .on('mousemove', e => showTooltip(
+          `<b>Capital Market Line</b><br>Slope (Sharpe): ${slope.toFixed(2)}<br>Intercept: ${(rf*100).toFixed(1)}%`, e))
+        .on('mouseleave', hideTooltip);
+    }
+  } else {
+    // rf is too high for a positive tangency portfolio → tell the user instead of silently hiding the line
+    svg.append('text')
+      .attr('x', W - m.r - 6).attr('y', m.t + 12)
+      .attr('text-anchor', 'end').attr('font-size', 10)
+      .attr('fill', '#dc2626').attr('font-style', 'italic')
+      .text('CML unavailable — risk-free rate exceeds attainable returns');
+  }
+
+  // User portfolio point (E4) — live updated by the Custom Weight Playground
+  if (STATE.userWeights && STATE.userWeights.length === tickers.length) {
+    const uSt = userPortfolioStats(tickers);
+    if (uSt && isFinite(uSt.vol) && isFinite(uSt.ret)) {
+      const cx = x(uSt.vol * 100), cy = y(uSt.ret * 100);
+      const halo = svg.append('circle').attr('cx', cx).attr('cy', cy)
+        .attr('r', 8).attr('fill', 'none').attr('stroke', '#7c3aed')
+        .attr('stroke-width', 2.5).attr('stroke-opacity', 0.9);
+      (function pulseUser() {
+        halo.attr('r', 8).attr('stroke-opacity', 0.9)
+          .transition().duration(1100).ease(d3.easeCubicOut)
+          .attr('r', 22).attr('stroke-opacity', 0).on('end', pulseUser);
+      })();
+      svg.append('circle').attr('cx', cx).attr('cy', cy)
+        .attr('r', 0).attr('fill', '#7c3aed').attr('stroke', 'white').attr('stroke-width', 2.5)
+        .on('mousemove', e => showTooltip(
+          `<b>Your portfolio</b><br>Return: ${(uSt.ret*100).toFixed(1)}%<br>Vol: ${(uSt.vol*100).toFixed(1)}%<br>Sharpe: ${uSt.sharpe.toFixed(2)}`, e))
+        .on('mouseleave', hideTooltip)
+        .transition().duration(420).ease(d3.easeBackOut.overshoot(1.4)).attr('r', 7);
+      svg.append('text').attr('x', cx + 12).attr('y', cy + 3)
+        .attr('font-size', 10).attr('font-weight', 700).attr('fill', '#7c3aed').text('You');
+    }
   }
 }
 
@@ -1433,6 +2012,7 @@ function renderStackedWeights(tickers) {
   if (!available.length) { wrap.innerHTML = '<div class="empty">Not available</div>'; return; }
 
   const W = wrap.clientWidth, H = 320;
+  if (W < 100) return;
   const mg = { t: 15, r: 15, b: 50, l: 50 };
   const svg = d3.select(wrap).append('svg').attr('class', 'chart').attr('viewBox', `0 0 ${W} ${H}`);
   const x0 = d3.scaleBand().domain(available.map(m => m.label)).range([mg.l, W - mg.r]).padding(.25);
@@ -1458,7 +2038,7 @@ function renderStackedWeights(tickers) {
     .attr('y1', y(0)).attr('y2', y(0))
     .attr('stroke', '#999').attr('stroke-width', 1);
 
-  available.forEach(method => {
+  available.forEach((method, mi) => {
     const weights = STATE.portfolios[method.key];
     let cumPos = 0, cumNeg = 0;
     tickers.forEach((t, i) => {
@@ -1471,21 +2051,23 @@ function renderStackedWeights(tickers) {
       const barY = y(y1);
       const barH = y(y0) - y(y1);
       svg.append('rect')
-        .attr('x', x0(method.label)).attr('y', barY)
-        .attr('width', x0.bandwidth()).attr('height', Math.max(0, barH))
+        .attr('x', x0(method.label)).attr('y', y(0)).attr('width', x0.bandwidth()).attr('height', 0)
         .attr('fill', col(idx)).attr('fill-opacity', v >= 0 ? .85 : .55)
         .attr('stroke', v >= 0 ? 'none' : '#dc2626')
         .attr('stroke-width', v >= 0 ? 0 : 1)
         .attr('stroke-dasharray', v >= 0 ? '0' : '3,2')
         .on('mousemove', e => showTooltip(
           `<b>${method.label}</b><br>${t}: ${(v*100).toFixed(1)}%${v < 0 ? ' (short)' : ''}`, e))
-        .on('mouseleave', hideTooltip);
+        .on('mouseleave', hideTooltip)
+        .transition().duration(620).delay(mi * 80 + i * 30).ease(d3.easeCubicOut)
+        .attr('y', barY).attr('height', Math.max(0, barH));
       if (barH > 14) {
         svg.append('text')
           .attr('x', x0(method.label) + x0.bandwidth() / 2).attr('y', barY + barH / 2 + 4)
           .attr('text-anchor', 'middle').attr('font-size', 9)
           .attr('fill', v >= 0 ? 'white' : '#7f1d1d').attr('font-weight', 600)
-          .text(t);
+          .attr('opacity', 0).text(t)
+          .transition().duration(280).delay(mi * 80 + i * 30 + 400).attr('opacity', 1);
       }
     });
   });
@@ -1527,3 +2109,16 @@ function renderPortfolioComparison(tickers) {
 
 // ----- Init -----
 renderChips();
+
+// Re-render charts on window resize so SVGs stay crisp at any width.
+// Debounced via lodash so resizing while dragging doesn't trigger a redraw storm.
+if (typeof _ !== 'undefined') {
+  window.addEventListener('resize', _.debounce(() => {
+    if (!STATE.logRet) return;
+    const tickers = STATE.active || STATE.tickers;
+    const activePanel = document.querySelector('.panel.active')?.id || 'panel-explorer';
+    if (activePanel === 'panel-explorer')  renderExplorer(tickers);
+    if (activePanel === 'panel-risk')      renderRisk();
+    if (activePanel === 'panel-portfolio') renderPortfolio();
+  }, 250));
+}
