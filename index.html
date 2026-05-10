@@ -4,20 +4,190 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Portfolio Allocation Engine</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=16" />
   <script src="https://d3js.org/d3.v7.min.js"></script>
 </head>
 <body>
   <header>
-    <div>
-      <h1>Portfolio Allocation Engine</h1>
-      <p class="subtitle">Interactive Asset Analysis &amp; Optimization</p>
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="22" height="22">
+          <rect x="3"  y="18" width="4" height="11" rx="1"/>
+          <rect x="10" y="12" width="4" height="17" rx="1"/>
+          <rect x="17" y="6"  width="4" height="23" rx="1"/>
+          <rect x="24" y="14" width="4" height="15" rx="1"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <h1>Portfolio Allocation Engine</h1>
+        <span class="brand-eyebrow">Quant Allocation Research &middot; EPFL</span>
+      </div>
     </div>
     <div class="header-status">
       <div class="dot" id="statusDot"></div>
       <span id="statusText">No data loaded</span>
     </div>
   </header>
+
+  <!-- Hero section: futuristic, dark, scrolls with the page -->
+  <section class="hero">
+    <!-- Boot flash overlay -->
+    <div class="hero-flash"></div>
+    <!-- Boot scan-line sweep -->
+    <div class="hero-sweep"></div>
+
+    <div class="hero-grid"></div>
+
+    <!-- Finance-themed background: line chart + candlesticks -->
+    <svg class="hero-chart" viewBox="0 0 1200 600" preserveAspectRatio="none" aria-hidden="true">
+      <defs>
+        <linearGradient id="lineGrad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%"   stop-color="#60a5fa" />
+          <stop offset="50%"  stop-color="#a78bfa" />
+          <stop offset="100%" stop-color="#f472b6" />
+        </linearGradient>
+        <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stop-color="rgba(99,102,241,0.30)" />
+          <stop offset="100%" stop-color="rgba(99,102,241,0.00)" />
+        </linearGradient>
+      </defs>
+
+      <!-- Area under price line -->
+      <path class="hero-chart-area"
+            d="M0,420 L60,400 120,430 180,380 240,360 300,390 360,330 420,310 480,340 540,290 600,260 660,300 720,240 780,210 840,250 900,200 960,170 1020,210 1080,160 1140,130 1200,150 L1200,600 L0,600 Z"
+            fill="url(#areaGrad)" />
+      <!-- Price line -->
+      <path class="hero-chart-line"
+            d="M0,420 L60,400 120,430 180,380 240,360 300,390 360,330 420,310 480,340 540,290 600,260 660,300 720,240 780,210 840,250 900,200 960,170 1020,210 1080,160 1140,130 1200,150"
+            fill="none" stroke="url(#lineGrad)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+
+      <!-- Candlesticks -->
+      <g class="hero-candles">
+        <g class="cd up"   style="--i:0">  <line x1="50"   y1="490" x2="50"   y2="455"/><rect x="44"   y="465" width="12" height="20"/></g>
+        <g class="cd down" style="--i:1">  <line x1="110"  y1="500" x2="110"  y2="465"/><rect x="104"  y="475" width="12" height="18"/></g>
+        <g class="cd up"   style="--i:2">  <line x1="170"  y1="495" x2="170"  y2="450"/><rect x="164"  y="460" width="12" height="22"/></g>
+        <g class="cd up"   style="--i:3">  <line x1="230"  y1="480" x2="230"  y2="430"/><rect x="224"  y="440" width="12" height="28"/></g>
+        <g class="cd down" style="--i:4">  <line x1="290"  y1="475" x2="290"  y2="445"/><rect x="284"  y="455" width="12" height="14"/></g>
+        <g class="cd up"   style="--i:5">  <line x1="350"  y1="470" x2="350"  y2="420"/><rect x="344"  y="430" width="12" height="30"/></g>
+        <g class="cd up"   style="--i:6">  <line x1="410"  y1="455" x2="410"  y2="400"/><rect x="404"  y="410" width="12" height="32"/></g>
+        <g class="cd down" style="--i:7">  <line x1="470"  y1="465" x2="470"  y2="430"/><rect x="464"  y="440" width="12" height="20"/></g>
+        <g class="cd up"   style="--i:8">  <line x1="530"  y1="450" x2="530"  y2="395"/><rect x="524"  y="405" width="12" height="32"/></g>
+        <g class="cd up"   style="--i:9">  <line x1="590"  y1="435" x2="590"  y2="370"/><rect x="584"  y="380" width="12" height="40"/></g>
+        <g class="cd down" style="--i:10"> <line x1="650"  y1="445" x2="650"  y2="410"/><rect x="644"  y="420" width="12" height="20"/></g>
+        <g class="cd up"   style="--i:11"> <line x1="710"  y1="430" x2="710"  y2="370"/><rect x="704"  y="380" width="12" height="36"/></g>
+        <g class="cd up"   style="--i:12"> <line x1="770"  y1="410" x2="770"  y2="350"/><rect x="764"  y="360" width="12" height="36"/></g>
+        <g class="cd down" style="--i:13"> <line x1="830"  y1="425" x2="830"  y2="380"/><rect x="824"  y="390" width="12" height="22"/></g>
+        <g class="cd up"   style="--i:14"> <line x1="890"  y1="405" x2="890"  y2="345"/><rect x="884"  y="355" width="12" height="36"/></g>
+        <g class="cd up"   style="--i:15"> <line x1="950"  y1="385" x2="950"  y2="320"/><rect x="944"  y="330" width="12" height="40"/></g>
+        <g class="cd down" style="--i:16"> <line x1="1010" y1="400" x2="1010" y2="360"/><rect x="1004" y="370" width="12" height="20"/></g>
+        <g class="cd up"   style="--i:17"> <line x1="1070" y1="385" x2="1070" y2="320"/><rect x="1064" y="330" width="12" height="40"/></g>
+        <g class="cd up"   style="--i:18"> <line x1="1130" y1="365" x2="1130" y2="295"/><rect x="1124" y="305" width="12" height="44"/></g>
+        <g class="cd up"   style="--i:19"> <line x1="1180" y1="345" x2="1180" y2="280"/><rect x="1174" y="290" width="12" height="40"/></g>
+      </g>
+    </svg>
+
+    <!-- Floating finance formulas -->
+    <div class="hero-formulas" aria-hidden="true">
+      <span class="formula" style="top:18%; left:6%;">E[R<sub>p</sub>] = &Sigma; w<sub>i</sub>&middot;&mu;<sub>i</sub></span>
+      <span class="formula" style="top:62%; left:4%;">&sigma;<sub>p</sub><sup>2</sup> = w<sup>T</sup>&Sigma;w</span>
+      <span class="formula" style="top:14%; right:5%;">SR = (R<sub>p</sub> &minus; R<sub>f</sub>) / &sigma;<sub>p</sub></span>
+      <span class="formula" style="top:70%; right:7%;">max w<sup>T</sup>&mu; &minus; &lambda;&middot;w<sup>T</sup>&Sigma;w</span>
+    </div>
+
+    <div class="hero-particles">
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+    </div>
+    <div class="hero-scanline"></div>
+
+    <div class="hero-inner">
+      <span class="hero-pill">
+        <span class="hero-pill-dot"></span>
+        EPFL &middot; Data Visualization 2026
+      </span>
+
+      <h2 class="hero-title">
+        <span class="line line-1">
+          <span class="ch">F</span><span class="ch">r</span><span class="ch">o</span><span class="ch">m</span>
+          <span class="ch ch-space">&nbsp;</span>
+          <span class="grad">
+            <span class="ch">M</span><span class="ch">a</span><span class="ch">r</span><span class="ch">k</span><span class="ch">o</span><span class="ch">w</span><span class="ch">i</span><span class="ch">t</span><span class="ch">z</span>
+          </span>
+        </span>
+        <br/>
+        <span class="line line-2">
+          <span class="ch">t</span><span class="ch">o</span>
+          <span class="ch ch-space">&nbsp;</span>
+          <span class="ch">y</span><span class="ch">o</span><span class="ch">u</span><span class="ch">r</span>
+          <span class="ch ch-space">&nbsp;</span>
+          <span class="ch">s</span><span class="ch">c</span><span class="ch">r</span><span class="ch">e</span><span class="ch">e</span><span class="ch">n</span><span class="ch">.</span>
+        </span>
+      </h2>
+
+      <p class="hero-lead">
+        Build, stress-test and visualize portfolios in real time.<br/>
+        Explore assets, estimate risk and trace the efficient frontier &mdash;
+        all in one interactive dashboard.
+      </p>
+
+      <div class="hero-stats">
+        <div class="hero-stat"><div class="hero-stat-num" data-target="9">0</div><div class="hero-stat-lbl">Default assets</div></div>
+        <div class="hero-stat"><div class="hero-stat-num" data-target="3">0</div><div class="hero-stat-lbl">Covariance estimators</div></div>
+        <div class="hero-stat"><div class="hero-stat-num" data-target="10000" data-format="k">0</div><div class="hero-stat-lbl">Monte&#8209;Carlo paths</div></div>
+        <div class="hero-stat"><div class="hero-stat-num">&infin;</div><div class="hero-stat-lbl">Possible portfolios</div></div>
+      </div>
+
+      <div class="hero-features">
+        <div class="hero-feat">
+          <div class="hero-feat-icon">01</div>
+          <div>
+            <div class="hero-feat-title">Asset Explorer</div>
+            <div class="hero-feat-desc">Returns, volatility, Sharpe ratios &amp; correlations at a glance.</div>
+          </div>
+        </div>
+        <div class="hero-feat">
+          <div class="hero-feat-icon">02</div>
+          <div>
+            <div class="hero-feat-title">Risk Estimation</div>
+            <div class="hero-feat-desc">Covariance matrices, rolling windows, eigen&#8209;decomposition.</div>
+          </div>
+        </div>
+        <div class="hero-feat">
+          <div class="hero-feat-icon">03</div>
+          <div>
+            <div class="hero-feat-title">Portfolio Builder</div>
+            <div class="hero-feat-desc">Monte&#8209;Carlo feasible set &amp; mean&#8209;variance optimization.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="hero-team">
+        <span class="hero-team-label">A project by</span>
+        <span class="team-member">Petrit Arifi</span>
+        <span class="team-sep"></span>
+        <span class="team-member">Adam Ait Bousselham</span>
+        <span class="team-sep"></span>
+        <span class="team-member">Florian Dinant</span>
+      </div>
+
+      <div class="hero-cta-wrap">
+        <div class="hero-chevrons" aria-hidden="true">
+          <span class="chev"></span>
+          <span class="chev"></span>
+          <span class="chev"></span>
+        </div>
+        <a class="hero-cta" href="#tabs-anchor" onclick="enterEngine(event)">
+          <span class="hero-cta-pulse"></span>
+          <span class="hero-cta-pulse hero-cta-pulse-2"></span>
+          <span class="hero-cta-glow"></span>
+          Start exploring <span class="hero-arrow">&darr;</span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <span id="tabs-anchor"></span>
 
   <div class="tabs">
     <button class="tab-btn active" onclick="switchTab('explorer',this)">01 - Asset Explorer</button>
@@ -268,5 +438,79 @@
   </div>
 
   <script src="engine.js"></script>
+  <script>
+    // Animated counters on the hero stats
+    function animateStats() {
+      const nums = document.querySelectorAll('.hero-stat-num[data-target]');
+      const duration = 1600;
+      nums.forEach((el, idx) => {
+        const target = +el.dataset.target;
+        const suffix = el.dataset.suffix || '';
+        const format = el.dataset.format || '';
+        const start  = performance.now() + idx * 80;
+        function tick(now) {
+          const t = Math.max(0, Math.min(1, (now - start) / duration));
+          const eased = 1 - Math.pow(1 - t, 3);
+          const v = Math.round(target * eased);
+          let txt;
+          if (format === 'k' && v >= 1000) txt = (v/1000).toFixed(v >= 10000 ? 0 : 1) + 'k';
+          else txt = v.toString();
+          el.textContent = txt + (t === 1 ? suffix : '');
+          if (t < 1) requestAnimationFrame(tick);
+        }
+        requestAnimationFrame(tick);
+      });
+    }
+    window.addEventListener('load', () => {
+      // Kick off counters right when the stat cards finish fading in
+      setTimeout(animateStats, 2400);
+    });
+
+    // Smooth slide-down from hero to engine — one-way, hero is dismissed after
+    function enterEngine(e) {
+      e.preventDefault();
+      if (document.body.classList.contains('engine-active')) return;
+
+      // Reveal the locked content (header, ticker, tabs, controls, main)
+      document.body.classList.add('engine-active');
+
+      // Wait for layout to settle, then smooth-scroll down to the ticker.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const hero    = document.querySelector('.hero');
+          const tabs    = document.querySelector('.tabs');
+          const headerH = document.querySelector('header').offsetHeight || 60;
+          const targetY = tabs.offsetTop - headerH;
+          const duration = 1200;
+
+          smoothScrollTo(targetY, duration);
+
+          // After the slide finishes, dismiss the hero so the user can't scroll
+          // back up to it. Snap scroll to 0 so the ticker sits flush under the
+          // fixed header.
+          setTimeout(() => {
+            hero.classList.add('dismissed');
+            window.scrollTo(0, 0);
+          }, duration + 60);
+        });
+      });
+    }
+
+    // Custom smooth scroll with easing (more cinematic than native scrollIntoView)
+    function smoothScrollTo(targetY, duration) {
+      const startY    = window.scrollY;
+      const distance  = targetY - startY;
+      const startTime = performance.now();
+      function easeInOutCubic(t) {
+        return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      }
+      function step(now) {
+        const t = Math.min(1, (now - startTime) / duration);
+        window.scrollTo(0, startY + distance * easeInOutCubic(t));
+        if (t < 1) requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }
+  </script>
 </body>
 </html>
