@@ -27,7 +27,8 @@ const STATE = {
   covEWMA: null,
   portfolios: {},
   rollWin: 90,
-  userWeights: null      // E4 - Custom Weight Playground (length = active tickers)
+  riskRollWin: 252,      // Rolling window for risk-tab spectral time-series
+  userWeights: null      // E4 — Custom Weight Playground (length = active tickers)
 };
 
 // ----- Helpers -----
@@ -1106,6 +1107,265 @@ function renderRisk() {
 
   renderEigenSpectrum(tickers, annSample, annLW, annEWMA);
   renderConditionTable(annSample, annLW, annEWMA);
+  renderMarchenkoPastur(tickers);
+  renderRollingSpectral(tickers);
+}
+
+function setRiskRollWin(w, btn) {
+  STATE.riskRollWin = w;
+  document.querySelectorAll('#riskRollWinGroup .win-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  if (STATE.logRet) renderRollingSpectral();
+}
+
+function corrFromCov(C) {
+  const p = C.length;
+  const d = Array.from({ length: p }, (_, i) => Math.sqrt(Math.max(C[i][i], 1e-18)));
+  const out = Array.from({ length: p }, () => new Float64Array(p));
+  for (let i = 0; i < p; i++)
+    for (let j = 0; j < p; j++)
+      out[i][j] = C[i][j] / (d[i] * d[j]);
+  return out;
+}
+
+function renderMarchenkoPastur(tickers) {
+  const wrap = document.getElementById('mpWrap');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  if (wrap.clientWidth < 100) return;
+
+  const p = tickers.length;
+  const n = STATE.logRet.length;
+  if (p < 2 || n <= p) {
+    wrap.innerHTML = '<div class="empty">Need at least 2 assets and more observations than assets</div>';
+    return;
+  }
+
+  const corr = corrFromCov(STATE.covSample);
+  const eig = eigenvalues(corr.map(r => [...r])).map(v => Math.max(0, v));
+
+  const q = p / n;
+  const sqrtQ = Math.sqrt(q);
+  const lamMinus = (1 - sqrtQ) ** 2;
+  const lamPlus  = (1 + sqrtQ) ** 2;
+
+  const xMax = Math.max(lamPlus * 1.15, (d3.max(eig) || 1) * 1.05);
+  const grid = 240;
+  const xs = d3.range(grid + 1).map(i => xMax * i / grid);
+  const density = xs.map(x => {
+    if (x <= lamMinus || x >= lamPlus || x <= 0) return 0;
+    return Math.sqrt(Math.max(0, (lamPlus - x) * (x - lamMinus))) / (2 * Math.PI * q * x);
+  });
+
+  const W = wrap.clientWidth, H = 320;
+  const m = { t: 22, r: 20, b: 50, l: 55 };
+  const svg = d3.select(wrap).append('svg').attr('class', 'chart').attr('viewBox', `0 0 ${W} ${H}`);
+
+  const x = d3.scaleLinear().domain([0, xMax]).range([m.l, W - m.r]);
+  const yTop = Math.max(d3.max(density) || 0, 0.5) * 1.2;
+  const y = d3.scaleLinear().domain([0, yTop]).range([H - m.b, m.t]);
+
+  svg.append('g').attr('transform', `translate(0,${H - m.b})`)
+    .call(d3.axisBottom(x).ticks(7))
+    .call(g => g.select('.domain').remove());
+  svg.append('g').attr('transform', `translate(${m.l},0)`)
+    .call(d3.axisLeft(y).ticks(5))
+    .call(g => g.select('.domain').remove());
+  svg.append('text').attr('x', W / 2).attr('y', H - 8)
+    .attr('text-anchor', 'middle').attr('font-size', 11).attr('fill', '#888').text('Eigenvalue λ');
+  svg.append('text').attr('transform', 'rotate(-90)').attr('x', -H / 2).attr('y', 14)
+    .attr('text-anchor', 'middle').attr('font-size', 11).attr('fill', '#888').text('MP density f(λ)');
+
+  const area = d3.area()
+    .x((d, i) => x(xs[i]))
+    .y0(y(0))
+    .y1(d => y(d))
+    .curve(d3.curveMonotoneX);
+  svg.append('path').datum(density)
+    .attr('fill', '#60a5fa').attr('fill-opacity', 0.20)
+    .attr('stroke', '#2563eb').attr('stroke-width', 1.6)
+    .attr('d', area);
+
+  [['λ₋', lamMinus], ['λ₊', lamPlus]].forEach(([lab, v]) => {
+    svg.append('line').attr('x1', x(v)).attr('x2', x(v))
+      .attr('y1', y(0)).attr('y2', m.t)
+      .attr('stroke', '#666').attr('stroke-width', 1).attr('stroke-dasharray', '4,3');
+    svg.append('text').attr('x', x(v)).attr('y', m.t - 6)
+      .attr('text-anchor', 'middle').attr('font-size', 10).attr('fill', '#444').text(lab);
+  });
+
+  const tickH = 24;
+  eig.forEach((v, i) => {
+    const isSignal = v > lamPlus + 1e-6;
+    svg.append('line')
+      .attr('x1', x(v)).attr('x2', x(v))
+      .attr('y1', y(0)).attr('y2', y(0) + tickH)
+      .attr('stroke', isSignal ? '#dc2626' : '#2563eb')
+      .attr('stroke-width', isSignal ? 2.4 : 1.6)
+      .attr('stroke-linecap', 'round')
+      .style('cursor', 'pointer')
+      .on('mousemove', e => showTooltip(
+        `λ${i + 1}: <b>${v.toFixed(3)}</b><br/>${isSignal
+          ? '<span style="color:#dc2626">Signal</span> &middot; above MP bulk'
+          : '<span style="color:#2563eb">Noise</span> &middot; inside MP bulk'}`, e))
+      .on('mouseleave', hideTooltip);
+  });
+
+  const nSignal = eig.filter(v => v > lamPlus + 1e-6).length;
+  const sub = document.getElementById('mpInfo');
+  if (sub) sub.innerHTML =
+    `q = ${q.toFixed(3)} &middot; bulk = [${lamMinus.toFixed(3)}, ${lamPlus.toFixed(3)}] &middot; <b>${nSignal}/${p}</b> signal eigenvalue${nSignal === 1 ? '' : 's'}`;
+
+  const legend = document.createElement('div');
+  legend.className = 'legend-row';
+  legend.innerHTML = `
+    <span class="legend-item"><span class="legend-swatch" style="background:#60a5fa"></span>MP density (theory)</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#2563eb"></span>Empirical λ &middot; noise</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#dc2626"></span>Empirical λ &middot; signal</span>`;
+  wrap.appendChild(legend);
+}
+
+function renderRollingSpectral(tickers) {
+  tickers = tickers || STATE.active || STATE.tickers;
+  const wrapE = document.getElementById('rollEigenWrap');
+  const wrapC = document.getElementById('rollCondWrap');
+  if (!wrapE || !wrapC) return;
+  wrapE.innerHTML = ''; wrapC.innerHTML = '';
+
+  const Wlen = STATE.riskRollWin || 252;
+  const orig = STATE.logRet;
+  const n = orig ? orig.length : 0;
+  if (!orig || n < Wlen + 5) {
+    const msg = `<div class="empty">Window (${Wlen}d) exceeds available observations (${n})</div>`;
+    wrapE.innerHTML = msg; wrapC.innerHTML = msg;
+    return;
+  }
+
+  // ~80 windows max for snappy redraws
+  const step = Math.max(5, Math.floor((n - Wlen) / 80) || 1);
+  const ann = TRADING_DAYS;
+  const rolls = [];
+
+  try {
+    for (let end = Wlen; end <= n; end += step) {
+      const slice = orig.slice(end - Wlen, end);
+      STATE.logRet = slice;
+      const cs = sampleCov(tickers);
+      const cl = ledoitWolf(tickers);
+      const ce = ewmaCov(tickers);
+      const stat = mat => {
+        const e = eigenvalues(mat.map(r => [...r])).map(v => Math.max(0, v));
+        const emax = e[0];
+        const emin = Math.max(e[e.length - 1], 1e-12);
+        return { lmax: emax * ann, cond: emax / emin };
+      };
+      rolls.push({
+        date: slice[slice.length - 1].Date,
+        sample: stat(cs), lw: stat(cl), ewma: stat(ce)
+      });
+    }
+  } finally {
+    STATE.logRet = orig;
+  }
+
+  drawSpectralLines(wrapE, rolls, 'lmax', { yLabel: 'λ₁ (annualised variance)', log: false });
+  drawSpectralLines(wrapC, rolls, 'cond', { yLabel: 'Condition number κ',        log: true  });
+}
+
+function drawSpectralLines(container, rolls, key, opts) {
+  const W = container.clientWidth, H = 280;
+  if (W < 100) return;
+  const m = { t: 15, r: 15, b: 35, l: 60 };
+  const svg = d3.select(container).append('svg').attr('class', 'chart').attr('viewBox', `0 0 ${W} ${H}`);
+
+  const dates = rolls.map(r => r.date);
+  const series = [
+    { name: 'Sample',      key: 'sample', color: '#2563eb' },
+    { name: 'Ledoit-Wolf', key: 'lw',     color: '#16a34a' },
+    { name: 'EWMA',        key: 'ewma',   color: '#d97706' }
+  ];
+
+  const allVals = rolls.flatMap(r => series.map(s => r[s.key][key]));
+  const x = d3.scaleTime().domain(d3.extent(dates)).range([m.l, W - m.r]);
+  let y;
+  if (opts.log) {
+    const positives = allVals.filter(v => v > 0 && isFinite(v));
+    const lo = Math.max(d3.min(positives) || 1, 1);
+    const hi = (d3.max(positives) || 10) * 1.2;
+    y = d3.scaleLog().domain([lo, hi]).range([H - m.b, m.t]).clamp(true);
+  } else {
+    const [lo, hi] = d3.extent(allVals);
+    const pad = (hi - lo) * 0.08 || Math.max(Math.abs(hi), 1) * 0.05;
+    y = d3.scaleLinear().domain([Math.max(0, lo - pad), hi + pad]).range([H - m.b, m.t]);
+  }
+
+  svg.append('g').attr('transform', `translate(0,${H - m.b})`)
+    .call(d3.axisBottom(x).ticks(6))
+    .call(g => g.select('.domain').remove());
+  svg.append('g').attr('transform', `translate(${m.l},0)`)
+    .call(opts.log
+      ? d3.axisLeft(y).ticks(5, '~s')
+      : d3.axisLeft(y).ticks(5).tickFormat(d => d.toFixed(2)))
+    .call(g => g.select('.domain').remove());
+  svg.append('text').attr('transform', 'rotate(-90)').attr('x', -H / 2).attr('y', 14)
+    .attr('text-anchor', 'middle').attr('font-size', 11).attr('fill', '#888').text(opts.yLabel);
+
+  const line = d3.line()
+    .defined(d => d != null && isFinite(d) && (!opts.log || d > 0))
+    .x((d, i) => x(dates[i]))
+    .y(d => y(d))
+    .curve(d3.curveMonotoneX);
+
+  series.forEach(s => {
+    const vals = rolls.map(r => r[s.key][key]);
+    svg.append('path').datum(vals).attr('d', line)
+      .attr('fill', 'none').attr('stroke', s.color)
+      .attr('stroke-width', 1.7).attr('stroke-opacity', 0.9);
+  });
+
+  // Hover layer with crosshair
+  const focus = svg.append('g').style('display', 'none');
+  focus.append('line').attr('y1', m.t).attr('y2', H - m.b)
+    .attr('stroke', '#999').attr('stroke-width', 1).attr('stroke-dasharray', '3,3');
+  series.forEach(s => {
+    focus.append('circle').attr('r', 3.5).attr('fill', s.color)
+      .attr('stroke', '#fff').attr('stroke-width', 1.2)
+      .attr('class', 'sp-dot-' + s.key);
+  });
+
+  const bisect = d3.bisector(d => +d).left;
+  svg.append('rect')
+    .attr('x', m.l).attr('y', m.t)
+    .attr('width', Math.max(0, W - m.r - m.l))
+    .attr('height', H - m.b - m.t)
+    .attr('fill', 'transparent')
+    .on('mouseover', () => focus.style('display', null))
+    .on('mouseout', () => { focus.style('display', 'none'); hideTooltip(); })
+    .on('mousemove', function (event) {
+      const xv = x.invert(d3.pointer(event)[0]);
+      let i = bisect(dates, xv);
+      if (i >= dates.length) i = dates.length - 1;
+      if (i > 0 && (xv - dates[i - 1] < dates[i] - xv)) i--;
+      const r = rolls[i];
+      focus.select('line').attr('x1', x(dates[i])).attr('x2', x(dates[i]));
+      series.forEach(s => {
+        const v = r[s.key][key];
+        focus.select('.sp-dot-' + s.key)
+          .attr('cx', x(dates[i]))
+          .attr('cy', isFinite(v) && (!opts.log || v > 0) ? y(v) : -10);
+      });
+      const fmt = opts.log ? (v => v >= 1000 ? d3.format('~s')(v) : v.toFixed(0)) : (v => v.toFixed(2));
+      const tip = `<b>${dates[i].toISOString().slice(0, 10)}</b><br/>` +
+        series.map(s => `<span style="color:${s.color}">●</span> ${s.name}: ${fmt(r[s.key][key])}`).join('<br/>');
+      showTooltip(tip, event);
+    });
+
+  const legend = document.createElement('div');
+  legend.className = 'legend-row';
+  series.forEach(s => {
+    legend.innerHTML += `<span class="legend-item"><span class="legend-swatch" style="background:${s.color}"></span>${s.name}</span>`;
+  });
+  container.appendChild(legend);
 }
 
 function renderEigenSpectrum(tickers, S, LW, EW) {

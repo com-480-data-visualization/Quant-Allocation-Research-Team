@@ -367,6 +367,58 @@
           </div>
         </div>
       </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Marchenko&ndash;Pastur: Signal vs Noise</span>
+          <span class="card-subtitle" id="mpInfo">&mdash;</span>
+        </div>
+        <div class="card-body">
+          <div class="chart-wrap" id="mpWrap"><div class="empty">Load data</div></div>
+          <div class="info-note">
+            <b>Random matrix theory.</b> If asset returns were pure noise, the eigenvalues
+            of the sample <em>correlation</em> matrix would lie inside the bulk
+            <span class="ix">[&lambda;<sub>&minus;</sub>, &lambda;<sub>+</sub>] = (1 &plusmn; &radic;q)<sup>2</sup></span>
+            with <span class="ix">q = p / n</span> (assets / observations).
+            Eigenvalues that escape <span class="ix">&lambda;<sub>+</sub></span> carry
+            <em>statistical signal</em> &mdash; the market factor, sectors, or persistent
+            risk modes. The shaded curve is the theoretical Marchenko&ndash;Pastur
+            density; ticks below mark the empirical eigenvalues. The wider the gap
+            between the largest eigenvalue and <span class="ix">&lambda;<sub>+</sub></span>,
+            the stronger the dominant factor.
+          </div>
+        </div>
+      </div>
+
+      <div class="controls-inline" style="margin-top:8px">
+        <span class="control-label">Rolling Window:</span>
+        <div class="window-group" id="riskRollWinGroup">
+          <button class="win-btn" onclick="setRiskRollWin(126,this)">126d</button>
+          <button class="win-btn active" onclick="setRiskRollWin(252,this)">252d</button>
+          <button class="win-btn" onclick="setRiskRollWin(504,this)">504d</button>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Rolling Top Eigenvalue</span>
+            <span class="card-subtitle">Annualised &lambda;<sub>1</sub> &middot; systemic-risk proxy</span>
+          </div>
+          <div class="card-body">
+            <div class="chart-wrap" id="rollEigenWrap"><div class="empty">Load data</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Rolling Condition Number</span>
+            <span class="card-subtitle">log scale &middot; estimator stability</span>
+          </div>
+          <div class="card-body">
+            <div class="chart-wrap" id="rollCondWrap"><div class="empty">Load data</div></div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- === PANEL 3 - PORTFOLIO BUILDER === -->
