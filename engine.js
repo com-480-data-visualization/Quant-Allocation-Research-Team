@@ -1971,6 +1971,11 @@ function renderMonteCarlo(tickers) {
     .attr('x', m.l).attr('y', m.t).attr('width', W - m.r - m.l).attr('height', H - m.b - m.t)
     .attr('fill', 'transparent').style('cursor', 'crosshair');
 
+  // Declared up here so the attachHover closure can capture it in both the
+  // animated and non-animated branches (the non-animated branch returns early,
+  // so a later `let` would leave it in the TDZ → ReferenceError on hover).
+  let bestIdx = -1;
+
   function attachHover() {
     hoverRect.on('mousemove', function(e) {
       const [mx, my] = d3.pointer(e, svg.node());
@@ -2025,6 +2030,7 @@ function renderMonteCarlo(tickers) {
     for (const d of cloud) drawPoint(d);
     let bi = 0;
     for (let i = 1; i < cloud.length; i++) if (cloud[i].sharpe > cloud[bi].sharpe) bi = i;
+    bestIdx = bi;
     const b = cloud[bi];
     bestG.style('display', null)
       .attr('transform', `translate(${x(b.vol*100)},${y(b.ret*100)})`);
@@ -2041,7 +2047,6 @@ function renderMonteCarlo(tickers) {
   const DURATION = 2600;
   const start = performance.now();
   let drawn = 0;
-  let bestIdx = -1;
   const myAnim = MC_STATE.anim;
 
   function step(now) {

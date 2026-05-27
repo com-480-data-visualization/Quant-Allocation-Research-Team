@@ -108,7 +108,15 @@ The dashboard is also hosted via GitHub Pages: **https://com-480-data-visualizat
 🎬 **Screencast (2 min):** https://www.youtube.com/watch?v=MlQdPHd0oeo  
 📄 **Process book:** [`process_book.pdf`](./process_book.pdf)
 
-TBD - ADD SCREENSHOTS
+![Landing page — From Markowitz to your screen](screenshots/01-hero.jpg)
+
+![01 - Asset Explorer — KPIs, return/vol scatter, summary table, correlation heatmap and return distribution](screenshots/02-asset-explorer.png)
+
+![02 - Risk Estimation Studio — Sample / Ledoit-Wolf / EWMA covariance with the divergent "difference vs. Sample" toggle on](screenshots/03-risk-estimation.png)
+
+![03 - Portfolio Builder — efficient frontier with the four named portfolios, stacked-bar weight comparison, and the animated Monte-Carlo feasible cloud](screenshots/04-portfolio-builder.png)
+
+![Custom Weight Playground — drag per-asset sliders to build your own long-only portfolio and watch its dot move on the frontier](screenshots/05-playground.png)
 
 ---
 
@@ -177,6 +185,10 @@ Where the geometry of optimization comes alive.
 - **Monte-Carlo feasible cloud** (1k – 10k Dirichlet-sampled portfolios),
   animated as it draws, coloured by Sharpe, with a pulsing star locked onto
   the running best
+- **Custom Weight Playground** - drag per-asset sliders to build your own
+  long-only portfolio with live return / volatility / Sharpe readout, or
+  one-click load the Min-Var / Tangency / Risk-Parity weights as a starting
+  point
 - Live performance comparison table
 
 ### Technical highlights
